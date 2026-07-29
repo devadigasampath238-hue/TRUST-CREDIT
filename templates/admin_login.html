@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Login - Trust Credit</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: Arial, Helvetica, sans-serif;
+    background: #0B1E3F; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-card {
+    background: #fff; padding: 40px 36px; border-radius: 12px;
+    width: 100%; max-width: 360px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; color: #0B1E3F; }
+  p.sub { margin: 0 0 24px; color: #667; font-size: 14px; }
+  label { display: block; font-size: 13px; font-weight: bold; color: #0B1E3F; margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 10px 12px; margin-bottom: 18px;
+    border: 1.5px solid #dde; border-radius: 8px; font-size: 14px;
+  }
+  button {
+    width: 100%; padding: 12px; border: none; border-radius: 8px;
+    background: #2E9E3E; color: #fff; font-size: 15px; font-weight: bold;
+    cursor: pointer;
+  }
+  button:hover { background: #257d31; }
+  .error {
+    background: #ffe6e6; color: #c0392b; padding: 10px 12px;
+    border-radius: 8px; font-size: 13px; margin-bottom: 18px;
+  }
+</style>
+</head>
+<body>
+  <div class="login-card">
+    <h1>Trust Credit Admin</h1>
+    <p class="sub">Sign in to manage loan applications</p>
+
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('admin_login') }}">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" required autofocus>
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required>
+
+      <button type="submit">Login</button>
+    </form>
+  </div>
+</body>
+</html>

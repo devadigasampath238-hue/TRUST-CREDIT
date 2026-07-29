@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Dashboard - Trust Credit</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f4f6fa; color: #0B1E3F; }
+  header {
+    background: #0B1E3F; color: #fff; padding: 18px 28px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header a { color: #fff; text-decoration: none; background: #c0392b; padding: 8px 16px; border-radius: 6px; font-size: 13px; }
+  .container { padding: 28px; max-width: 1100px; margin: 0 auto; }
+  .stat-box {
+    background: #fff; border-radius: 10px; padding: 20px 26px;
+    display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 24px;
+  }
+  .stat-box .num { font-size: 32px; font-weight: bold; color: #2E9E3E; }
+  .stat-box .label { font-size: 13px; color: #667; text-transform: uppercase; letter-spacing: 0.03em; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  th, td { padding: 12px 14px; text-align: left; font-size: 14px; border-bottom: 1px solid #eee; }
+  th { background: #0B1E3F; color: #fff; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr:hover { background: #f9fbff; }
+  .actions a, .actions button {
+    display: inline-block; padding: 6px 12px; font-size: 12px; border-radius: 6px;
+    text-decoration: none; margin-right: 6px; border: none; cursor: pointer;
+  }
+  .btn-view { background: #e8f3ff; color: #1a5fb4; }
+  .btn-delete { background: #ffe6e6; color: #c0392b; }
+  .empty { padding: 40px; text-align: center; color: #889; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Trust Credit &mdash; Admin Dashboard</h1>
+    <a href="{{ url_for('admin_logout') }}">Logout</a>
+  </header>
+
+  <div class="container">
+    <div class="stat-box">
+      <div class="num">{{ total }}</div>
+      <div class="label">Total Loan Applications</div>
+    </div>
+
+    {% if applications|length == 0 %}
+      <div class="empty">No loan applications yet.</div>
+    {% else %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Mobile</th>
+            <th>City</th>
+            <th>Loan Type</th>
+            <th>Submitted On</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in applications %}
+          <tr>
+            <td>{{ a.id }}</td>
+            <td>{{ a.full_name }}</td>
+            <td>{{ a.mobile }}</td>
+            <td>{{ a.city }}</td>
+            <td>{{ a.loan_type }}</td>
+            <td>{{ a.created_at }}</td>
+            <td class="actions">
+              <a class="btn-view" href="{{ url_for('admin_view', app_id=a.id) }}">View</a>
+              <form method="POST" action="{{ url_for('admin_delete', app_id=a.id) }}" style="display:inline;"
+                    onsubmit="return confirm('Delete this application?');">
+                <button class="btn-delete" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+</body>
+</html>
