@@ -14,8 +14,8 @@ import getpass
 from werkzeug.security import generate_password_hash
 
 if __name__ == "__main__":
-    password = getpass.getpass("Choose your new admin password: ")
-    confirm = getpass.getpass("Type it again to confirm: ")
+    password = input("Choose your new admin password: ")
+    confirm = input("Type it again to confirm: ")
 
     if password != confirm:
         print("Passwords did not match. Please try again.")

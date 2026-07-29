@@ -27,7 +27,7 @@
 */
 
 (function () {
-  var API_BASE = "http://127.0.0.1:5000"; // change if backend runs elsewhere
+  var API_BASE = "https://trust-credit.onrender.com"; // change if backend runs elsewhere
   var AUTOPLAY_MS = 3200;
 
   function init() {
