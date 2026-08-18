@@ -172,9 +172,14 @@
 
     function render() {
       var half = Math.floor(total / 2);
-      // Measure the actual on-screen card width so spacing matches
+      // Measure the card's true (untransformed) width so spacing matches
       // whatever the current breakpoint's CSS `width` resolves to.
-      var cardW = cards[0].getBoundingClientRect().width || 300;
+      // IMPORTANT: use offsetWidth, not getBoundingClientRect() — the
+      // latter reports the size AFTER the scale() transform is applied,
+      // so it would report a different (shrinking/growing) width
+      // depending on which ring position card[0] currently happens to
+      // be in, throwing the whole layout's spacing off as slides advance.
+      var cardW = cards[0].offsetWidth || 300;
 
       for (var i = 0; i < total; i++) {
         var delta = i - current;
