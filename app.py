@@ -1,7 +1,7 @@
 """
 Trust Credit - Flask Backend (hardened for production)
 --------------------------------------------------------
-- Saves loan applications submitted from the website into SQLite (loan.db)
+- Saves loan applications submitted from the website into PostgreSQL
 - Admin login protected with a HASHED password (not plain text),
   a login-attempt limiter, and secure session cookie settings
 - Serves the banner images from static/slides as a JSON API for the
@@ -25,7 +25,8 @@ Run in production (see deployment guide provided separately):
 """
 
 import os
-import sqlite3
+import psycopg
+from psycopg.rows import dict_row
 import time
 from datetime import datetime
 from functools import wraps
@@ -41,7 +42,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 # --------------------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "loan.db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 SLIDES_DIR = os.path.join(BASE_DIR, "static", "slides")
 
 app = Flask(__name__)
@@ -139,8 +140,12 @@ def add_cors_headers(response):
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        if not DATABASE_URL:
+            raise RuntimeError(
+                "DATABASE_URL environment variable is not set. "
+                "Add your PostgreSQL connection string in Render."
+            )
+        g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return g.db
 
 
@@ -152,23 +157,30 @@ def close_db(exception=None):
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS applications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT NOT NULL,
-            mobile TEXT NOT NULL,
-            email TEXT,
-            city TEXT,
-            loan_type TEXT,
-            message TEXT,
-            created_at TEXT NOT NULL
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL environment variable is not set. "
+            "Add your PostgreSQL connection string in Render."
         )
-        """
-    )
-    conn.commit()
-    conn.close()
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS applications (
+                id BIGSERIAL PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                mobile TEXT NOT NULL,
+                email TEXT,
+                city TEXT,
+                loan_type TEXT,
+                message TEXT,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
 with app.app_context():
     init_db()
 
@@ -211,7 +223,7 @@ def api_apply():
     db.execute(
         """
         INSERT INTO applications (full_name, mobile, email, city, loan_type, message, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (full_name, mobile, email, city, loan_type, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     )
@@ -296,7 +308,7 @@ def admin_dashboard():
 def admin_view(app_id):
     db = get_db()
     application = db.execute(
-        "SELECT * FROM applications WHERE id = ?", (app_id,)
+        "SELECT * FROM applications WHERE id = %s", (app_id,)
     ).fetchone()
     if application is None:
         return redirect(url_for("admin_dashboard"))
@@ -307,7 +319,7 @@ def admin_view(app_id):
 @login_required
 def admin_delete(app_id):
     db = get_db()
-    db.execute("DELETE FROM applications WHERE id = ?", (app_id,))
+    db.execute("DELETE FROM applications WHERE id = %s", (app_id,))
     db.commit()
     return redirect(url_for("admin_dashboard"))
 
@@ -327,5 +339,4 @@ def index():
 # --------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    init_db()
     app.run(debug=not IS_PRODUCTION, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
