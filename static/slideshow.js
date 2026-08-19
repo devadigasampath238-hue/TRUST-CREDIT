@@ -74,6 +74,19 @@
          fully visible inside the card — nothing gets cropped off the edges. */
       ".tc3d-card img{width:100%; height:100%; object-fit:contain; display:block; pointer-events:none; background:#0B3B75;}\n" +
       ".tc3d-card.is-center{cursor:default;}\n" +
+      /* Per-slide download button, top-right corner of each card. Only shown
+         (via hover/focus) on the centered card on pointer devices; always
+         shown on touch devices since there's no hover state there. */
+      ".tc3d-dl{position:absolute; top:8px; right:8px; z-index:5; width:34px; height:34px; min-width:34px;" +
+      " border-radius:50%; border:none; background:rgba(7,37,72,0.55); backdrop-filter:blur(2px);" +
+      " color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer;" +
+      " opacity:0; transform:translateY(-4px); transition:opacity 0.2s ease, transform 0.2s ease, background 0.2s ease;" +
+      " pointer-events:none;}\n" +
+      ".tc3d-dl svg{width:16px; height:16px;}\n" +
+      ".tc3d-card.is-center .tc3d-dl{opacity:1; transform:translateY(0); pointer-events:auto;}\n" +
+      ".tc3d-dl:hover{background:var(--green,#2E9E3E);}\n" +
+      ".tc3d-dl.is-busy{pointer-events:none; opacity:0.7;}\n" +
+      "@media(hover:none){.tc3d-dl{opacity:1; transform:none; pointer-events:auto; width:30px; height:30px; min-width:30px;}}\n" +
       ".tc3d-arrow{position:absolute; top:50%; transform:translateY(-50%); z-index:60;" +
       " width:46px; height:46px; min-width:46px; border-radius:50%; border:none; background:#fff;" +
       " color:var(--navy-deep,#072548); font-size:22px; line-height:1; cursor:pointer;" +
@@ -93,6 +106,7 @@
       "  .tc3d-stage{height:360px;}\n" +
       "  .tc3d-card{width:200px;}\n" +
       "  .tc3d-arrow{width:38px; height:38px; min-width:38px; font-size:18px;}\n" +
+      "  .tc3d-dl{width:30px; height:30px; min-width:30px;}\n" +
       "}\n" +
       /* Mobile */
       "@media(max-width:560px){\n" +
@@ -100,6 +114,8 @@
       "  .tc3d-card{width:165px; border-radius:12px;}\n" +
       "  .tc3d-arrow{width:34px; height:34px; min-width:34px; font-size:16px; left:2px;}\n" +
       "  .tc3d-arrow.next{left:auto; right:2px;}\n" +
+      "  .tc3d-dl{width:26px; height:26px; min-width:26px; top:6px; right:6px;}\n" +
+      "  .tc3d-dl svg{width:13px; height:13px;}\n" +
       "}\n" +
       "@media(max-width:400px){\n" +
       "  .tc3d-stage{height:260px;}\n" +
@@ -134,6 +150,7 @@
       '</div>';
 
     insertInMiddle(section);
+    observeReveal(section);
 
     var track = section.querySelector("#tc3dTrack");
     var dotsWrap = section.querySelector("#tc3dDots");
@@ -145,11 +162,27 @@
     var current = 0;
     var cards = [];
 
+    var DOWNLOAD_ICON =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>';
+    var CHECK_ICON =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+
     imageUrls.forEach(function (url, i) {
       var card = document.createElement("div");
       card.className = "tc3d-card";
-      card.innerHTML = '<img src="' + url + '" alt="Trust Credit offer ' + (i + 1) + '" loading="lazy">';
+      card.innerHTML = '<img src="' + url + '" alt="Trust Credit offer ' + (i + 1) + '" loading="lazy">' +
+        '<button class="tc3d-dl" type="button" aria-label="Download this offer image">' + DOWNLOAD_ICON + '</button>';
       card.addEventListener("click", function () { goTo(i); });
+
+      var dlBtn = card.querySelector(".tc3d-dl");
+      dlBtn.addEventListener("click", function (e) {
+        e.stopPropagation(); // don't trigger the card's own goTo(i) click
+        downloadSlide(url, i, dlBtn, DOWNLOAD_ICON, CHECK_ICON);
+      });
+
       track.appendChild(card);
       cards.push(card);
 
@@ -238,6 +271,83 @@
     });
 
     render();
+  }
+
+  // -----------------------------------------------------------------
+  // Fix for the blank gap above the slideshow:
+  // The site's own scroll-reveal script (inline at the bottom of
+  // trust_credit.html) sets up ONE IntersectionObserver on page load
+  // and only ever watches the `.reveal` / `.reveal-stagger` elements
+  // that already exist in the DOM at that instant. Because this
+  // section is injected by slideshow.js slightly later, its own
+  // ".section-head.reveal" (eyebrow + heading + paragraph) never gets
+  // observed, so it never receives the "in" class the site's CSS
+  // needs to fade it to opacity:1. It stays invisible forever, but
+  // still occupies its normal layout space (margin-bottom:56px, plus
+  // the eyebrow/h2/p line-heights) — which is exactly the "huge gap"
+  // above the coverflow. We give this section its own small observer
+  // that replicates the same fade-in behavior.
+  // -----------------------------------------------------------------
+  function observeReveal(section) {
+    var els = section.querySelectorAll(".reveal, .reveal-stagger");
+    if (!els.length) return;
+    if (!("IntersectionObserver" in window)) {
+      // No IO support: just show the content immediately rather than
+      // leaving it invisible.
+      for (var i = 0; i < els.length; i++) els[i].classList.add("in");
+      return;
+    }
+    var io = new IntersectionObserver(function (entries, obs) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("in");
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+    for (var j = 0; j < els.length; j++) io.observe(els[j]);
+  }
+
+  // -----------------------------------------------------------------
+  // Per-slide download.
+  // Tries to fetch the image as a blob and trigger a real file
+  // download (works when the backend serves the image with permissive
+  // CORS headers, same as it already must for the JSON API call).
+  // If that's blocked (e.g. no CORS headers on the static image
+  // route), falls back to opening the image in a new tab so the user
+  // can still save it manually (long-press / right-click → Save Image).
+  // -----------------------------------------------------------------
+  function downloadSlide(url, index, btn, iconHtml, checkHtml) {
+    btn.classList.add("is-busy");
+    fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error("Bad response");
+        return res.blob();
+      })
+      .then(function (blob) {
+        var ext = (blob.type && blob.type.split("/")[1]) || (url.split(".").pop().split("?")[0]) || "jpg";
+        var a = document.createElement("a");
+        var objectUrl = URL.createObjectURL(blob);
+        a.href = objectUrl;
+        a.download = "trust-credit-offer-" + (index + 1) + "." + ext;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 4000);
+        showDownloadSuccess(btn, iconHtml, checkHtml);
+      })
+      .catch(function () {
+        // CORS or network issue — fall back to a new tab so the user
+        // can still save the image themselves.
+        window.open(url, "_blank", "noopener");
+        btn.classList.remove("is-busy");
+      });
+  }
+
+  function showDownloadSuccess(btn, iconHtml, checkHtml) {
+    btn.innerHTML = checkHtml;
+    btn.classList.remove("is-busy");
+    setTimeout(function () { btn.innerHTML = iconHtml; }, 1400);
   }
 
   function insertInMiddle(section) {
