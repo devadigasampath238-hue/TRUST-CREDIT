@@ -42,17 +42,89 @@
 (function () {
   var API_BASE = "https://trust-credit.onrender.com"; // change if backend runs elsewhere
   var AUTOPLAY_MS = 3200;
+  var CACHE_KEY = "tc3d_slides_cache_v1";
+  var FETCH_TIMEOUT_MS = 12000; // Render free-tier cold start can take 30-60s to
+  // wake, but we don't want a visitor waiting that long staring at nothing.
+  // Give it 12s, then fall back to the last known-good set of slides so the
+  // section still appears instead of leaving a blank gap.
+  var RETRY_ATTEMPTS = 2;
+  var RETRY_DELAY_MS = 1500;
+
+  // --------------------------------------------------------------
+  // Reliability layer: the backend is a free-tier Render service
+  // that spins down after ~15 min idle, so the first request after
+  // a quiet period can be very slow or occasionally fail outright.
+  // This wraps the plain fetch from before with:
+  //   1. a timeout, so we don't hang indefinitely on a slow wake-up
+  //   2. a couple of quick retries (cheap, since a retry after a
+  //      cold-start failure often lands on an already-warm server)
+  //   3. a localStorage cache of the last successful slide list, so
+  //      if every attempt fails the visitor still sees the most
+  //      recent real slides instead of an empty section
+  // --------------------------------------------------------------
+
+  function fetchWithTimeout(url, ms) {
+    if (typeof AbortController === "undefined") return fetch(url);
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, ms);
+    return fetch(url, { signal: controller.signal }).finally(function () {
+      clearTimeout(timer);
+    });
+  }
+
+  function fetchSlidesWithRetry(attemptsLeft) {
+    return fetchWithTimeout(API_BASE + "/api/slides", FETCH_TIMEOUT_MS)
+      .then(function (res) {
+        if (!res.ok) throw new Error("Bad response: " + res.status);
+        return res.json();
+      })
+      .catch(function (err) {
+        if (attemptsLeft > 0) {
+          return new Promise(function (resolve) {
+            setTimeout(resolve, RETRY_DELAY_MS);
+          }).then(function () { return fetchSlidesWithRetry(attemptsLeft - 1); });
+        }
+        throw err;
+      });
+  }
+
+  function getCachedSlides() {
+    try {
+      var raw = window.localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      return (parsed && parsed.slides && parsed.slides.length) ? parsed.slides : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setCachedSlides(slides) {
+    try {
+      window.localStorage.setItem(CACHE_KEY, JSON.stringify({ slides: slides, savedAt: Date.now() }));
+    } catch (e) {
+      // localStorage unavailable (private browsing, quota, etc.) — non-fatal,
+      // it just means no fallback cache next time.
+    }
+  }
 
   function init() {
-    fetch(API_BASE + "/api/slides")
-      .then(function (res) { return res.json(); })
+    fetchSlidesWithRetry(RETRY_ATTEMPTS)
       .then(function (data) {
         var slides = data.slides || [];
-        if (slides.length === 0) return;
+        if (slides.length === 0) throw new Error("Empty slides response");
+        setCachedSlides(slides);
         buildCoverflow(slides.map(function (path) { return API_BASE + path; }));
       })
       .catch(function (err) {
-        console.error("Could not load slideshow images:", err);
+        console.error("Could not load fresh slideshow images, checking cache:", err);
+        var cached = getCachedSlides();
+        if (cached) {
+          console.warn("Showing last cached slideshow images instead.");
+          buildCoverflow(cached.map(function (path) { return API_BASE + path; }));
+        } else {
+          console.error("No cached slideshow images available — section will not render.");
+        }
       });
   }
 
