@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Manage Reviews - Trust Credit</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f4f6fa; color: #0B1E3F; }
+  header {
+    background: #0B1E3F; color: #fff; padding: 18px 28px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header a { color: #fff; text-decoration: none; background: #2E9E3E; padding: 8px 16px; border-radius: 6px; font-size: 13px; margin-left: 8px; }
+  header a.logout { background: #c0392b; }
+  .container { padding: 28px; max-width: 900px; margin: 0 auto; }
+  h2.section-title { font-size: 15px; text-transform: uppercase; letter-spacing: 0.03em; color: #667; margin: 32px 0 12px; }
+  .review-card {
+    background: #fff; border-radius: 10px; padding: 20px 24px; margin-bottom: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .review-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .review-name { font-weight: bold; font-size: 15px; }
+  .review-stars { color: #2E9E3E; font-size: 14px; margin-left: 8px; }
+  .review-date { color: #889; font-size: 12px; }
+  .review-text { margin: 12px 0 14px; line-height: 1.55; font-size: 14.5px; }
+  .actions a, .actions button {
+    display: inline-block; padding: 6px 14px; font-size: 12px; border-radius: 6px;
+    text-decoration: none; margin-right: 6px; border: none; cursor: pointer;
+  }
+  .btn-approve { background: #e6f7ea; color: #217a2f; }
+  .btn-reject { background: #ffe6e6; color: #c0392b; }
+  .btn-delete { background: #eee; color: #556; }
+  .status-tag { font-size: 11px; padding: 2px 9px; border-radius: 10px; font-weight: bold; margin-left: 8px; }
+  .status-pending { background: #fff3cd; color: #856404; }
+  .status-approved { background: #e6f7ea; color: #217a2f; }
+  .status-rejected { background: #ffe6e6; color: #c0392b; }
+  .empty { padding: 24px; text-align: center; color: #889; background: #fff; border-radius: 10px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Trust Credit &mdash; Manage Reviews</h1>
+    <div>
+      <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+      <a class="logout" href="{{ url_for('admin_logout') }}">Logout</a>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <h2 class="section-title">Pending Approval ({{ pending|length }})</h2>
+    {% if pending|length == 0 %}
+      <div class="empty">No pending reviews.</div>
+    {% endif %}
+    {% for r in pending %}
+      <div class="review-card">
+        <div class="review-top">
+          <div>
+            <span class="review-name">{{ r.customer_name }}</span>
+            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+            <span class="status-tag status-pending">PENDING</span>
+          </div>
+          <span class="review-date">{{ r.created_at }}</span>
+        </div>
+        <div class="review-text">{{ r.review_text }}</div>
+        <div class="actions">
+          <form method="POST" action="{{ url_for('admin_approve_review', review_id=r.id) }}" style="display:inline;">
+            <button class="btn-approve" type="submit">Approve</button>
+          </form>
+          <form method="POST" action="{{ url_for('admin_reject_review', review_id=r.id) }}" style="display:inline;">
+            <button class="btn-reject" type="submit">Reject</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+
+    <h2 class="section-title">Live on Site ({{ approved|length }})</h2>
+    {% if approved|length == 0 %}
+      <div class="empty">No approved reviews yet.</div>
+    {% endif %}
+    {% for r in approved %}
+      <div class="review-card">
+        <div class="review-top">
+          <div>
+            <span class="review-name">{{ r.customer_name }}</span>
+            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+            <span class="status-tag status-approved">LIVE</span>
+          </div>
+          <span class="review-date">{{ r.created_at }}</span>
+        </div>
+        <div class="review-text">{{ r.review_text }}</div>
+        <div class="actions">
+          <form method="POST" action="{{ url_for('admin_delete_review', review_id=r.id) }}" style="display:inline;"
+                onsubmit="return confirm('Remove this review from the live site?');">
+            <button class="btn-delete" type="submit">Remove</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+
+    <h2 class="section-title">Rejected ({{ rejected|length }})</h2>
+    {% if rejected|length == 0 %}
+      <div class="empty">No rejected reviews.</div>
+    {% endif %}
+    {% for r in rejected %}
+      <div class="review-card">
+        <div class="review-top">
+          <div>
+            <span class="review-name">{{ r.customer_name }}</span>
+            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+            <span class="status-tag status-rejected">REJECTED</span>
+          </div>
+          <span class="review-date">{{ r.created_at }}</span>
+        </div>
+        <div class="review-text">{{ r.review_text }}</div>
+        <div class="actions">
+          <form method="POST" action="{{ url_for('admin_delete_review', review_id=r.id) }}" style="display:inline;">
+            <button class="btn-delete" type="submit">Delete permanently</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+
+  </div>
+</body>
+</html>
