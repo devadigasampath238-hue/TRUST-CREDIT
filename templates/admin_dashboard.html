@@ -2,84 +2,380 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Admin Dashboard - Trust Credit</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f4f6fa; color: #0B1E3F; }
   header {
     background: #0B1E3F; color: #fff; padding: 18px 28px;
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+    position: sticky; top: 0; z-index: 20;
   }
   header h1 { margin: 0; font-size: 20px; }
-  header a { color: #fff; text-decoration: none; background: #c0392b; padding: 8px 16px; border-radius: 6px; font-size: 13px; }
+  header nav a { color: #fff; text-decoration: none; font-size: 13px; margin-right: 18px; opacity: 0.85; }
+  header nav a:hover { opacity: 1; text-decoration: underline; }
+  header .logout { color: #fff; text-decoration: none; background: #c0392b; padding: 8px 16px; border-radius: 6px; font-size: 13px; }
+
   .container { padding: 28px; max-width: 1100px; margin: 0 auto; }
+
+  .stats-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
   .stat-box {
-    background: #fff; border-radius: 10px; padding: 20px 26px;
-    display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 24px;
+    background: #fff; border-radius: 10px; padding: 18px 24px; flex: 1; min-width: 140px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: transform .2s ease;
   }
-  .stat-box .num { font-size: 32px; font-weight: bold; color: #2E9E3E; }
-  .stat-box .label { font-size: 13px; color: #667; text-transform: uppercase; letter-spacing: 0.03em; }
+  .stat-box:hover { transform: translateY(-3px); }
+  .stat-box .num { font-size: 28px; font-weight: bold; color: #2E9E3E; }
+  .stat-box.gold .num { color: #b8860b; }
+  .stat-box.blue .num { color: #1a5fb4; }
+  .stat-box .label { font-size: 12px; color: #667; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 2px; }
+
+  h2.section-title {
+    font-size: 16px; text-transform: uppercase; letter-spacing: 0.04em; color: #0B1E3F;
+    margin: 40px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #e1e5ec;
+    scroll-margin-top: 90px;
+  }
+
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-  th, td { padding: 12px 14px; text-align: left; font-size: 14px; border-bottom: 1px solid #eee; }
-  th { background: #0B1E3F; color: #fff; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  th, td { padding: 12px 14px; text-align: left; font-size: 13.5px; border-bottom: 1px solid #eee; }
+  th { background: #0B1E3F; color: #fff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  tr { transition: opacity .35s ease, background-color .2s ease; }
   tr:hover { background: #f9fbff; }
+  tr.row-exit { opacity: 0; }
+
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; margin-right: 4px; white-space: nowrap; }
+  .tag-new { background: #eef1f6; color: #667; }
+  .tag-contacted { background: #fff3cd; color: #856404; }
+  .tag-disbursed { background: linear-gradient(135deg,#f4e5a1,#d4af37); color: #4a3b00; box-shadow: 0 1px 3px rgba(180,140,0,0.35); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .actions a, .actions button {
     display: inline-block; padding: 6px 12px; font-size: 12px; border-radius: 6px;
-    text-decoration: none; margin-right: 6px; border: none; cursor: pointer;
+    text-decoration: none; border: none; cursor: pointer; transition: transform .12s ease, opacity .12s ease;
   }
+  .actions a:active, .actions button:active { transform: scale(0.94); }
   .btn-view { background: #e8f3ff; color: #1a5fb4; }
+  .btn-contact { background: #fff3cd; color: #856404; }
+  .btn-contact.is-on { background: #856404; color: #fff; }
+  .btn-disburse { background: #f4e5a1; color: #4a3b00; }
+  .btn-disburse.is-on { background: #b8860b; color: #fff; }
   .btn-delete { background: #ffe6e6; color: #c0392b; }
-  .empty { padding: 40px; text-align: center; color: #889; }
+  .btn-approve { background: #e6f7ea; color: #217a2f; }
+  .btn-reject { background: #ffe6e6; color: #c0392b; }
+
+  .empty { padding: 30px; text-align: center; color: #889; background: #fff; border-radius: 10px; }
+
+  /* -------- Review cards -------- */
+  .review-card {
+    background: #fff; border-radius: 10px; padding: 18px 22px; margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    transition: opacity .35s ease, max-height .35s ease, padding .35s ease, margin .35s ease;
+    overflow: hidden; max-height: 400px;
+  }
+  .review-card.row-exit { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; border: none; }
+  .review-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .review-name { font-weight: bold; font-size: 14.5px; }
+  .review-stars { color: #2E9E3E; font-size: 13px; margin-left: 6px; }
+  .review-date { color: #889; font-size: 12px; }
+  .review-text { margin: 10px 0 12px; line-height: 1.5; font-size: 14px; }
+
+  /* -------- Toast -------- */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #0B1E3F; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .25s ease, transform .25s ease; z-index: 50;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 700px) {
+    .container { padding: 16px; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    tr { background: #fff; margin-bottom: 12px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 6px 0; }
+    tr.row-exit { transform: none; }
+    td { border-bottom: none; padding: 6px 14px; display: flex; justify-content: space-between; gap: 10px; }
+    td::before { content: attr(data-label); font-weight: bold; color: #667; font-size: 11px; text-transform: uppercase; }
+    td.actions-cell { display: block; }
+    td.actions-cell::before { display: none; }
+  }
 </style>
 </head>
 <body>
   <header>
-    <h1>Trust Credit &mdash; Admin Dashboard</h1>
-    <a href="{{ url_for('admin_logout') }}">Logout</a>
+    <h1>Trust Credit &mdash; Admin</h1>
+    <nav>
+      <a href="#applications">Applications</a>
+      <a href="#disbursed">Disbursed</a>
+      <a href="#reviews">Reviews</a>
+    </nav>
+    <a class="logout" href="{{ url_for('admin_logout') }}">Logout</a>
   </header>
 
   <div class="container">
-    <div class="stat-box">
-      <div class="num">{{ total }}</div>
-      <div class="label">Total Loan Applications</div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="num">{{ total }}</div>
+        <div class="label">Total Applications</div>
+      </div>
+      <div class="stat-box blue">
+        <div class="num">{{ contacted_count }}</div>
+        <div class="label">Contacted</div>
+      </div>
+      <div class="stat-box gold">
+        <div class="num">{{ disbursed_applications|length }}</div>
+        <div class="label">Disbursed</div>
+      </div>
+      <div class="stat-box">
+        <div class="num">{{ pending_reviews|length }}</div>
+        <div class="label">Pending Reviews</div>
+      </div>
     </div>
 
-    {% if applications|length == 0 %}
-      <div class="empty">No loan applications yet.</div>
+    <!-- ============ ACTIVE APPLICATIONS ============ -->
+    <h2 class="section-title" id="applications">Loan Applications ({{ active_applications|length }})</h2>
+    {% if active_applications|length == 0 %}
+      <div class="empty">No active applications.</div>
     {% else %}
-      <table>
+      <table id="activeTable">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Name</th>
-            <th>Mobile</th>
-            <th>City</th>
-            <th>Loan Type</th>
-            <th>Submitted On</th>
-            <th>Actions</th>
+            <th>#</th><th>Name</th><th>Mobile</th><th>City</th><th>Loan Type</th><th>Status</th><th>Submitted</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {% for a in applications %}
-          <tr>
-            <td>{{ a.id }}</td>
-            <td>{{ a.full_name }}</td>
-            <td>{{ a.mobile }}</td>
-            <td>{{ a.city }}</td>
-            <td>{{ a.loan_type }}</td>
-            <td>{{ a.created_at }}</td>
-            <td class="actions">
+          {% for a in active_applications %}
+          <tr data-id="{{ a.id }}">
+            <td data-label="#">{{ a.id }}</td>
+            <td data-label="Name">{{ a.full_name }}</td>
+            <td data-label="Mobile">{{ a.mobile }}</td>
+            <td data-label="City">{{ a.city }}</td>
+            <td data-label="Loan Type">{{ a.loan_type }}</td>
+            <td data-label="Status">
+              {% if a.contacted %}<span class="tag tag-contacted">CONTACTED</span>{% else %}<span class="tag tag-new">NEW</span>{% endif %}
+            </td>
+            <td data-label="Submitted">{{ a.created_at }}</td>
+            <td class="actions-cell actions">
               <a class="btn-view" href="{{ url_for('admin_view', app_id=a.id) }}">View</a>
-              <form method="POST" action="{{ url_for('admin_delete', app_id=a.id) }}" style="display:inline;"
-                    onsubmit="return confirm('Delete this application?');">
-                <button class="btn-delete" type="submit">Delete</button>
-              </form>
+              <button class="btn-contact{{ ' is-on' if a.contacted else '' }}" data-action="toggle-contacted" data-id="{{ a.id }}">
+                {{ 'Contacted ✓' if a.contacted else 'Mark Contacted' }}
+              </button>
+              <button class="btn-disburse" data-action="toggle-disbursed" data-id="{{ a.id }}">Mark Disbursed</button>
+              <button class="btn-delete" data-action="delete-application" data-id="{{ a.id }}">Delete</button>
             </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     {% endif %}
+
+    <!-- ============ DISBURSED APPLICATIONS ============ -->
+    <h2 class="section-title" id="disbursed">Disbursed Loans ({{ disbursed_applications|length }})</h2>
+    {% if disbursed_applications|length == 0 %}
+      <div class="empty">No disbursed loans yet.</div>
+    {% else %}
+      <table id="disbursedTable">
+        <thead>
+          <tr>
+            <th>#</th><th>Name</th><th>Mobile</th><th>City</th><th>Loan Type</th><th>Status</th><th>Submitted</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in disbursed_applications %}
+          <tr data-id="{{ a.id }}">
+            <td data-label="#">{{ a.id }}</td>
+            <td data-label="Name">{{ a.full_name }}</td>
+            <td data-label="Mobile">{{ a.mobile }}</td>
+            <td data-label="City">{{ a.city }}</td>
+            <td data-label="Loan Type">{{ a.loan_type }}</td>
+            <td data-label="Status"><span class="tag tag-disbursed">★ DISBURSED</span></td>
+            <td data-label="Submitted">{{ a.created_at }}</td>
+            <td class="actions-cell actions">
+              <a class="btn-view" href="{{ url_for('admin_view', app_id=a.id) }}">View</a>
+              <button class="btn-disburse is-on" data-action="toggle-disbursed" data-id="{{ a.id }}">Undo Disbursed</button>
+              <button class="btn-delete" data-action="delete-application" data-id="{{ a.id }}">Delete</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <!-- ============ REVIEWS ============ -->
+    <h2 class="section-title" id="reviews">Pending Reviews ({{ pending_reviews|length }})</h2>
+    {% if pending_reviews|length == 0 %}
+      <div class="empty">No pending reviews.</div>
+    {% endif %}
+    {% for r in pending_reviews %}
+      <div class="review-card" data-review-id="{{ r.id }}">
+        <div class="review-top">
+          <div>
+            <span class="review-name">{{ r.customer_name }}</span>
+            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+          </div>
+          <span class="review-date">{{ r.created_at }}</span>
+        </div>
+        <div class="review-text">{{ r.review_text }}</div>
+        <div class="actions">
+          <button class="btn-approve" data-action="approve-review" data-id="{{ r.id }}">Approve</button>
+          <button class="btn-reject" data-action="reject-review" data-id="{{ r.id }}">Reject</button>
+        </div>
+      </div>
+    {% endfor %}
+
+    <h2 class="section-title">Live on Site ({{ approved_reviews|length }})</h2>
+    {% if approved_reviews|length == 0 %}
+      <div class="empty">No approved reviews yet.</div>
+    {% endif %}
+    {% for r in approved_reviews %}
+      <div class="review-card" data-review-id="{{ r.id }}">
+        <div class="review-top">
+          <div>
+            <span class="review-name">{{ r.customer_name }}</span>
+            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+            <span class="tag tag-disbursed" style="margin-left:8px;">LIVE</span>
+          </div>
+          <span class="review-date">{{ r.created_at }}</span>
+        </div>
+        <div class="review-text">{{ r.review_text }}</div>
+        <div class="actions">
+          <button class="btn-delete" data-action="delete-review" data-id="{{ r.id }}">Remove from site</button>
+        </div>
+      </div>
+    {% endfor %}
+
+    <h2 class="section-title">Rejected ({{ rejected_reviews|length }})</h2>
+    {% if rejected_reviews|length == 0 %}
+      <div class="empty">No rejected reviews.</div>
+    {% endif %}
+    {% for r in rejected_reviews %}
+      <div class="review-card" data-review-id="{{ r.id }}">
+        <div class="review-top">
+          <div>
+            <span class="review-name">{{ r.customer_name }}</span>
+            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+          </div>
+          <span class="review-date">{{ r.created_at }}</span>
+        </div>
+        <div class="review-text">{{ r.review_text }}</div>
+        <div class="actions">
+          <button class="btn-delete" data-action="delete-review" data-id="{{ r.id }}">Delete permanently</button>
+        </div>
+      </div>
+    {% endfor %}
+
   </div>
+
+  <div id="toast"></div>
+
+  <script>
+    function showToast(msg) {
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(function () { t.classList.remove('show'); }, 2200);
+    }
+
+    function postAction(url) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      }).then(function (res) {
+        if (!res.ok) throw new Error('Request failed');
+        return res.json();
+      });
+    }
+
+    // Fade a row/card out, then remove it from the DOM once the
+    // transition finishes (falls back to a short timeout if the
+    // transitionend event doesn't fire for some reason).
+    function animateRemove(el, callback) {
+      el.classList.add('row-exit');
+      var done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        el.remove();
+        if (callback) callback();
+      }
+      el.addEventListener('transitionend', finish, { once: true });
+      setTimeout(finish, 500);
+    }
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-action]');
+      if (!btn) return;
+
+      var action = btn.getAttribute('data-action');
+      var id = btn.getAttribute('data-id');
+      btn.disabled = true;
+
+      if (action === 'toggle-contacted') {
+        postAction('/admin/applications/' + id + '/toggle-contacted')
+          .then(function (data) {
+            var isOn = !!data.contacted;
+            btn.classList.toggle('is-on', isOn);
+            btn.textContent = isOn ? 'Contacted ✓' : 'Mark Contacted';
+            var row = btn.closest('tr');
+            var statusCell = row.querySelector('[data-label="Status"]');
+            statusCell.innerHTML = isOn
+              ? '<span class="tag tag-contacted">CONTACTED</span>'
+              : '<span class="tag tag-new">NEW</span>';
+            showToast(isOn ? 'Marked as contacted' : 'Contacted mark removed');
+            btn.disabled = false;
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'toggle-disbursed') {
+        var row = btn.closest('tr');
+        postAction('/admin/applications/' + id + '/toggle-disbursed')
+          .then(function (data) {
+            showToast(data.disbursed ? 'Moved to Disbursed Loans' : 'Moved back to Applications');
+            animateRemove(row, function () { window.location.reload(); });
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'delete-application') {
+        if (!confirm('Delete this application permanently?')) { btn.disabled = false; return; }
+        var row = btn.closest('tr');
+        postAction('/admin/delete/' + id)
+          .then(function () {
+            showToast('Application deleted');
+            animateRemove(row);
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'approve-review') {
+        var card = btn.closest('.review-card');
+        postAction('/admin/reviews/' + id + '/approve')
+          .then(function () {
+            showToast('Review approved — now live on the site');
+            animateRemove(card, function () { window.location.reload(); });
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'reject-review') {
+        var card = btn.closest('.review-card');
+        postAction('/admin/reviews/' + id + '/reject')
+          .then(function () {
+            showToast('Review rejected');
+            animateRemove(card, function () { window.location.reload(); });
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'delete-review') {
+        if (!confirm('Delete this review permanently?')) { btn.disabled = false; return; }
+        var card = btn.closest('.review-card');
+        postAction('/admin/reviews/' + id + '/delete')
+          .then(function () {
+            showToast('Review deleted');
+            animateRemove(card, function () { window.location.reload(); });
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+      }
+    });
+  </script>
 </body>
 </html>
