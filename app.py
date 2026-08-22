@@ -178,6 +178,10 @@ def init_db():
             )
             """
         )
+        # Safe to re-run: only adds these columns if they don't already exist,
+        # so this won't touch your existing application rows.
+        conn.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS contacted BOOLEAN NOT NULL DEFAULT FALSE")
+        conn.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS disbursed BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS reviews (
@@ -208,6 +212,13 @@ def login_required(view):
             return redirect(url_for("admin_login"))
         return view(*args, **kwargs)
     return wrapped
+
+
+def wants_json():
+    # Our own JS sends this header on every fetch() call below. Regular
+    # <form> submits (no-JS fallback) won't send it, so those still get
+    # the normal redirect behavior.
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
 # --------------------------------------------------------------------------
@@ -368,11 +379,36 @@ def admin_logout():
 @login_required
 def admin_dashboard():
     db = get_db()
-    applications = db.execute(
-        "SELECT * FROM applications ORDER BY id DESC"
+
+    active_applications = db.execute(
+        "SELECT * FROM applications WHERE disbursed = FALSE ORDER BY id DESC"
     ).fetchall()
-    total = len(applications)
-    return render_template("admin_dashboard.html", applications=applications, total=total)
+    disbursed_applications = db.execute(
+        "SELECT * FROM applications WHERE disbursed = TRUE ORDER BY id DESC"
+    ).fetchall()
+    total = len(active_applications) + len(disbursed_applications)
+    contacted_count = sum(1 for a in active_applications if a["contacted"])
+
+    pending_reviews = db.execute(
+        "SELECT * FROM reviews WHERE status = 'pending' ORDER BY id DESC"
+    ).fetchall()
+    approved_reviews = db.execute(
+        "SELECT * FROM reviews WHERE status = 'approved' ORDER BY id DESC"
+    ).fetchall()
+    rejected_reviews = db.execute(
+        "SELECT * FROM reviews WHERE status = 'rejected' ORDER BY id DESC"
+    ).fetchall()
+
+    return render_template(
+        "admin_dashboard.html",
+        active_applications=active_applications,
+        disbursed_applications=disbursed_applications,
+        total=total,
+        contacted_count=contacted_count,
+        pending_reviews=pending_reviews,
+        approved_reviews=approved_reviews,
+        rejected_reviews=rejected_reviews,
+    )
 
 
 @app.route("/admin/view/<int:app_id>")
@@ -393,30 +429,44 @@ def admin_delete(app_id):
     db = get_db()
     db.execute("DELETE FROM applications WHERE id = %s", (app_id,))
     db.commit()
+    if wants_json():
+        return jsonify({"success": True})
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/applications/<int:app_id>/toggle-contacted", methods=["POST"])
+@login_required
+def admin_toggle_contacted(app_id):
+    db = get_db()
+    db.execute(
+        "UPDATE applications SET contacted = NOT contacted WHERE id = %s", (app_id,)
+    )
+    db.commit()
+    row = db.execute("SELECT contacted FROM applications WHERE id = %s", (app_id,)).fetchone()
+    if wants_json():
+        return jsonify({"success": True, "contacted": row["contacted"] if row else None})
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/applications/<int:app_id>/toggle-disbursed", methods=["POST"])
+@login_required
+def admin_toggle_disbursed(app_id):
+    db = get_db()
+    db.execute(
+        "UPDATE applications SET disbursed = NOT disbursed WHERE id = %s", (app_id,)
+    )
+    db.commit()
+    row = db.execute("SELECT disbursed FROM applications WHERE id = %s", (app_id,)).fetchone()
+    if wants_json():
+        return jsonify({"success": True, "disbursed": row["disbursed"] if row else None})
     return redirect(url_for("admin_dashboard"))
 
 
 # --------------------------------------------------------------------------
 # Admin - Reviews (approve / reject customer-submitted reviews)
+# Merged into the single admin_dashboard.html page - these routes just
+# perform the action and report back, they no longer render their own page.
 # --------------------------------------------------------------------------
-
-@app.route("/admin/reviews")
-@login_required
-def admin_reviews():
-    db = get_db()
-    pending = db.execute(
-        "SELECT * FROM reviews WHERE status = 'pending' ORDER BY id DESC"
-    ).fetchall()
-    approved = db.execute(
-        "SELECT * FROM reviews WHERE status = 'approved' ORDER BY id DESC"
-    ).fetchall()
-    rejected = db.execute(
-        "SELECT * FROM reviews WHERE status = 'rejected' ORDER BY id DESC"
-    ).fetchall()
-    return render_template(
-        "admin_reviews.html", pending=pending, approved=approved, rejected=rejected
-    )
-
 
 @app.route("/admin/reviews/<int:review_id>/approve", methods=["POST"])
 @login_required
@@ -424,7 +474,9 @@ def admin_approve_review(review_id):
     db = get_db()
     db.execute("UPDATE reviews SET status = 'approved' WHERE id = %s", (review_id,))
     db.commit()
-    return redirect(url_for("admin_reviews"))
+    if wants_json():
+        return jsonify({"success": True})
+    return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/admin/reviews/<int:review_id>/reject", methods=["POST"])
@@ -433,7 +485,9 @@ def admin_reject_review(review_id):
     db = get_db()
     db.execute("UPDATE reviews SET status = 'rejected' WHERE id = %s", (review_id,))
     db.commit()
-    return redirect(url_for("admin_reviews"))
+    if wants_json():
+        return jsonify({"success": True})
+    return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/admin/reviews/<int:review_id>/delete", methods=["POST"])
@@ -442,7 +496,9 @@ def admin_delete_review(review_id):
     db = get_db()
     db.execute("DELETE FROM reviews WHERE id = %s", (review_id,))
     db.commit()
-    return redirect(url_for("admin_reviews"))
+    if wants_json():
+        return jsonify({"success": True})
+    return redirect(url_for("admin_dashboard"))
 
 
 # --------------------------------------------------------------------------
