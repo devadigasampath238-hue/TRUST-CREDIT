@@ -178,6 +178,18 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS reviews (
+                id BIGSERIAL PRIMARY KEY,
+                customer_name TEXT NOT NULL,
+                rating INTEGER,
+                review_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -248,6 +260,66 @@ def api_slides():
     )
     slide_urls = [f"/static/slides/{f}" for f in files]
     return jsonify({"slides": slide_urls})
+
+
+# --------------------------------------------------------------------------
+# Public API - Reviews (submit + fetch approved)
+# --------------------------------------------------------------------------
+
+@app.route("/api/reviews", methods=["POST", "OPTIONS"])
+def api_submit_review():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    data = request.get_json(silent=True) or request.form
+
+    customer_name = (data.get("customer_name") or data.get("name") or "").strip()
+    review_text = (data.get("review_text") or data.get("message") or "").strip()
+    rating_raw = data.get("rating")
+
+    rating = None
+    if rating_raw not in (None, ""):
+        try:
+            rating = int(rating_raw)
+            if rating < 1 or rating > 5:
+                rating = None
+        except (TypeError, ValueError):
+            rating = None
+
+    if not customer_name or not review_text:
+        return jsonify({"success": False, "error": "Name and review text are required."}), 400
+
+    if len(review_text) > 2000:
+        return jsonify({"success": False, "error": "Review is too long."}), 400
+
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO reviews (customer_name, rating, review_text, status, created_at)
+        VALUES (%s, %s, %s, 'pending', %s)
+        """,
+        (customer_name, rating, review_text, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    )
+    db.commit()
+
+    return jsonify({"success": True, "message": "Thank you! Your review will appear once approved."})
+
+
+@app.route("/api/reviews", methods=["GET"])
+def api_get_reviews():
+    db = get_db()
+    reviews = db.execute(
+        """
+        SELECT customer_name, rating, review_text, created_at
+        FROM reviews
+        WHERE status = 'approved'
+        ORDER BY id DESC
+        LIMIT 50
+        """
+    ).fetchall()
+    for r in reviews:
+        r["created_at"] = r["created_at"].strftime("%d %b %Y") if r.get("created_at") else ""
+    return jsonify({"reviews": reviews})
 
 
 # --------------------------------------------------------------------------
@@ -322,6 +394,55 @@ def admin_delete(app_id):
     db.execute("DELETE FROM applications WHERE id = %s", (app_id,))
     db.commit()
     return redirect(url_for("admin_dashboard"))
+
+
+# --------------------------------------------------------------------------
+# Admin - Reviews (approve / reject customer-submitted reviews)
+# --------------------------------------------------------------------------
+
+@app.route("/admin/reviews")
+@login_required
+def admin_reviews():
+    db = get_db()
+    pending = db.execute(
+        "SELECT * FROM reviews WHERE status = 'pending' ORDER BY id DESC"
+    ).fetchall()
+    approved = db.execute(
+        "SELECT * FROM reviews WHERE status = 'approved' ORDER BY id DESC"
+    ).fetchall()
+    rejected = db.execute(
+        "SELECT * FROM reviews WHERE status = 'rejected' ORDER BY id DESC"
+    ).fetchall()
+    return render_template(
+        "admin_reviews.html", pending=pending, approved=approved, rejected=rejected
+    )
+
+
+@app.route("/admin/reviews/<int:review_id>/approve", methods=["POST"])
+@login_required
+def admin_approve_review(review_id):
+    db = get_db()
+    db.execute("UPDATE reviews SET status = 'approved' WHERE id = %s", (review_id,))
+    db.commit()
+    return redirect(url_for("admin_reviews"))
+
+
+@app.route("/admin/reviews/<int:review_id>/reject", methods=["POST"])
+@login_required
+def admin_reject_review(review_id):
+    db = get_db()
+    db.execute("UPDATE reviews SET status = 'rejected' WHERE id = %s", (review_id,))
+    db.commit()
+    return redirect(url_for("admin_reviews"))
+
+
+@app.route("/admin/reviews/<int:review_id>/delete", methods=["POST"])
+@login_required
+def admin_delete_review(review_id):
+    db = get_db()
+    db.execute("DELETE FROM reviews WHERE id = %s", (review_id,))
+    db.commit()
+    return redirect(url_for("admin_reviews"))
 
 
 # --------------------------------------------------------------------------
