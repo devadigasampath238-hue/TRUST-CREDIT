@@ -25,6 +25,7 @@ Run in production (see deployment guide provided separately):
 """
 
 import os
+import secrets
 import psycopg
 from psycopg.rows import dict_row
 import time
@@ -65,6 +66,11 @@ app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32).hex()
 # see the real password.
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH")
+
+if IS_PRODUCTION and ADMIN_USERNAME == "admin":
+    print("WARNING: ADMIN_USERNAME is still the default 'admin'. Set a "
+          "custom ADMIN_USERNAME environment variable in Render - 'admin' "
+          "is the first username every attacker tries.")
 
 if not ADMIN_PASSWORD_HASH:
     # Local-testing fallback ONLY: default password is "admin123".
@@ -131,6 +137,20 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = ALLOWED_ORIGIN
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
+
+@app.after_request
+def add_security_headers(response):
+    # Stops the admin pages from being loaded inside an <iframe> on
+    # another site (clickjacking protection).
+    response.headers["X-Frame-Options"] = "DENY"
+    # Stops the browser from guessing/re-interpreting file types, which
+    # can be abused to run disguised scripts.
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Don't leak the full referring URL (which may contain admin paths
+    # or session-ish info) to third-party sites linked from your pages.
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
 
@@ -237,6 +257,28 @@ def wants_json():
     # <form> submits (no-JS fallback) won't send it, so those still get
     # the normal redirect behavior.
     return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+# --------------------------------------------------------------------------
+# CSRF protection for the admin login form.
+# A malicious website could otherwise auto-submit a hidden form to your
+# /admin/login endpoint from a visitor's browser. This one-time token
+# (tied to their session) makes sure a submission only counts if it
+# actually came from your own login page.
+# --------------------------------------------------------------------------
+
+def get_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+
+def csrf_token_valid(submitted_token):
+    real_token = session.get("csrf_token")
+    return bool(real_token) and bool(submitted_token) and secrets.compare_digest(real_token, submitted_token)
+
+
+app.jinja_env.globals["csrf_token"] = get_csrf_token
 
 
 # --------------------------------------------------------------------------
@@ -406,7 +448,11 @@ def admin_login():
     ip = request.remote_addr or "unknown"
 
     if request.method == "POST":
-        if is_locked_out(ip):
+        submitted_csrf = request.form.get("csrf_token", "")
+
+        if not csrf_token_valid(submitted_csrf):
+            error = "Your session expired. Please try logging in again."
+        elif is_locked_out(ip):
             error = "Too many failed attempts. Please try again in a few minutes."
         else:
             username = request.form.get("username", "")
@@ -423,6 +469,9 @@ def admin_login():
                 return redirect(url_for("admin_dashboard"))
             else:
                 register_failed_attempt(ip)
+                print(f"[SECURITY] Failed admin login attempt from {ip} "
+                      f"at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+                      f"(username tried: {username!r})")
                 error = "Invalid username or password."
 
     return render_template("admin_login.html", error=error)
