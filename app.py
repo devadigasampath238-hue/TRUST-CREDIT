@@ -194,6 +194,24 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS partner_referrals (
+                id BIGSERIAL PRIMARY KEY,
+                referrer_name TEXT NOT NULL,
+                referrer_mobile TEXT NOT NULL,
+                referrer_payout TEXT,
+                borrower_name TEXT NOT NULL,
+                borrower_mobile TEXT NOT NULL,
+                borrower_city TEXT,
+                borrower_occupation TEXT,
+                loan_amount TEXT,
+                loan_type TEXT,
+                contacted BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -253,6 +271,51 @@ def api_apply():
     db.commit()
 
     return jsonify({"success": True, "message": "Application submitted successfully."})
+
+
+# --------------------------------------------------------------------------
+# Public API - Partner referral form (Refer & Earn)
+# --------------------------------------------------------------------------
+
+@app.route("/api/partner-referral", methods=["POST", "OPTIONS"])
+def api_partner_referral():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    data = request.get_json(silent=True) or request.form
+
+    referrer_name = (data.get("referrer_name") or "").strip()
+    referrer_mobile = (data.get("referrer_mobile") or "").strip()
+    referrer_payout = (data.get("referrer_payout") or "").strip()
+    borrower_name = (data.get("borrower_name") or "").strip()
+    borrower_mobile = (data.get("borrower_mobile") or "").strip()
+    borrower_city = (data.get("borrower_city") or "").strip()
+    borrower_occupation = (data.get("borrower_occupation") or "").strip()
+    loan_amount = (data.get("loan_amount") or "").strip()
+    loan_type = (data.get("loan_type") or "").strip()
+
+    if not referrer_name or not referrer_mobile or not borrower_name or not borrower_mobile:
+        return jsonify({"success": False, "error": "Referrer and borrower name/mobile are required."}), 400
+
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO partner_referrals (
+            referrer_name, referrer_mobile, referrer_payout,
+            borrower_name, borrower_mobile, borrower_city, borrower_occupation,
+            loan_amount, loan_type, created_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            referrer_name, referrer_mobile, referrer_payout,
+            borrower_name, borrower_mobile, borrower_city, borrower_occupation,
+            loan_amount, loan_type, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ),
+    )
+    db.commit()
+
+    return jsonify({"success": True, "message": "Referral submitted successfully."})
 
 
 # --------------------------------------------------------------------------
@@ -399,6 +462,10 @@ def admin_dashboard():
         "SELECT * FROM reviews WHERE status = 'rejected' ORDER BY id DESC"
     ).fetchall()
 
+    partner_referrals = db.execute(
+        "SELECT * FROM partner_referrals ORDER BY id DESC"
+    ).fetchall()
+
     return render_template(
         "admin_dashboard.html",
         active_applications=active_applications,
@@ -408,6 +475,7 @@ def admin_dashboard():
         pending_reviews=pending_reviews,
         approved_reviews=approved_reviews,
         rejected_reviews=rejected_reviews,
+        partner_referrals=partner_referrals,
     )
 
 
@@ -495,6 +563,35 @@ def admin_reject_review(review_id):
 def admin_delete_review(review_id):
     db = get_db()
     db.execute("DELETE FROM reviews WHERE id = %s", (review_id,))
+    db.commit()
+    if wants_json():
+        return jsonify({"success": True})
+    return redirect(url_for("admin_dashboard"))
+
+
+# --------------------------------------------------------------------------
+# Admin - Partner referrals (Refer & Earn submissions)
+# --------------------------------------------------------------------------
+
+@app.route("/admin/referrals/<int:referral_id>/toggle-contacted", methods=["POST"])
+@login_required
+def admin_toggle_referral_contacted(referral_id):
+    db = get_db()
+    db.execute(
+        "UPDATE partner_referrals SET contacted = NOT contacted WHERE id = %s", (referral_id,)
+    )
+    db.commit()
+    row = db.execute("SELECT contacted FROM partner_referrals WHERE id = %s", (referral_id,)).fetchone()
+    if wants_json():
+        return jsonify({"success": True, "contacted": row["contacted"] if row else None})
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/referrals/<int:referral_id>/delete", methods=["POST"])
+@login_required
+def admin_delete_referral(referral_id):
+    db = get_db()
+    db.execute("DELETE FROM partner_referrals WHERE id = %s", (referral_id,))
     db.commit()
     if wants_json():
         return jsonify({"success": True})
