@@ -107,6 +107,7 @@
     <nav>
       <a href="#applications">Applications</a>
       <a href="#disbursed">Disbursed</a>
+      <a href="#referrals">Partner Referrals</a>
       <a href="#reviews">Reviews</a>
     </nav>
     <a class="logout" href="{{ url_for('admin_logout') }}">Logout</a>
@@ -130,6 +131,10 @@
       <div class="stat-box">
         <div class="num">{{ pending_reviews|length }}</div>
         <div class="label">Pending Reviews</div>
+      </div>
+      <div class="stat-box blue">
+        <div class="num">{{ partner_referrals|length }}</div>
+        <div class="label">Partner Referrals</div>
       </div>
     </div>
 
@@ -195,6 +200,48 @@
               <a class="btn-view" href="{{ url_for('admin_view', app_id=a.id) }}">View</a>
               <button class="btn-disburse is-on" data-action="toggle-disbursed" data-id="{{ a.id }}">Undo Disbursed</button>
               <button class="btn-delete" data-action="delete-application" data-id="{{ a.id }}">Delete</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <!-- ============ PARTNER REFERRALS ============ -->
+    <h2 class="section-title" id="referrals">Partner Referrals ({{ partner_referrals|length }})</h2>
+    {% if partner_referrals|length == 0 %}
+      <div class="empty">No partner referrals yet.</div>
+    {% else %}
+      <table id="referralsTable">
+        <thead>
+          <tr>
+            <th>#</th><th>Referrer</th><th>Referrer Mobile</th><th>Payout (UPI/Bank)</th>
+            <th>Borrower</th><th>Borrower Mobile</th><th>City</th><th>Occupation</th>
+            <th>Loan Amount</th><th>Loan Type</th><th>Status</th><th>Submitted</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in partner_referrals %}
+          <tr data-id="{{ r.id }}">
+            <td data-label="#">{{ r.id }}</td>
+            <td data-label="Referrer">{{ r.referrer_name }}</td>
+            <td data-label="Referrer Mobile">{{ r.referrer_mobile }}</td>
+            <td data-label="Payout (UPI/Bank)">{{ r.referrer_payout }}</td>
+            <td data-label="Borrower">{{ r.borrower_name }}</td>
+            <td data-label="Borrower Mobile">{{ r.borrower_mobile }}</td>
+            <td data-label="City">{{ r.borrower_city }}</td>
+            <td data-label="Occupation">{{ r.borrower_occupation }}</td>
+            <td data-label="Loan Amount">{{ r.loan_amount }}</td>
+            <td data-label="Loan Type">{{ r.loan_type }}</td>
+            <td data-label="Status">
+              {% if r.contacted %}<span class="tag tag-contacted">CONTACTED</span>{% else %}<span class="tag tag-new">NEW</span>{% endif %}
+            </td>
+            <td data-label="Submitted">{{ r.created_at }}</td>
+            <td class="actions-cell actions">
+              <button class="btn-contact{{ ' is-on' if r.contacted else '' }}" data-action="toggle-referral-contacted" data-id="{{ r.id }}">
+                {{ 'Contacted ✓' if r.contacted else 'Mark Contacted' }}
+              </button>
+              <button class="btn-delete" data-action="delete-referral" data-id="{{ r.id }}">Delete</button>
             </td>
           </tr>
           {% endfor %}
@@ -372,6 +419,32 @@
           .then(function () {
             showToast('Review deleted');
             animateRemove(card, function () { window.location.reload(); });
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'toggle-referral-contacted') {
+        postAction('/admin/referrals/' + id + '/toggle-contacted')
+          .then(function (data) {
+            var isOn = !!data.contacted;
+            btn.classList.toggle('is-on', isOn);
+            btn.textContent = isOn ? 'Contacted ✓' : 'Mark Contacted';
+            var row = btn.closest('tr');
+            var statusCell = row.querySelector('[data-label="Status"]');
+            statusCell.innerHTML = isOn
+              ? '<span class="tag tag-contacted">CONTACTED</span>'
+              : '<span class="tag tag-new">NEW</span>';
+            showToast(isOn ? 'Marked as contacted' : 'Contacted mark removed');
+            btn.disabled = false;
+          })
+          .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
+
+      } else if (action === 'delete-referral') {
+        if (!confirm('Delete this referral permanently?')) { btn.disabled = false; return; }
+        var row = btn.closest('tr');
+        postAction('/admin/referrals/' + id + '/delete')
+          .then(function () {
+            showToast('Referral deleted');
+            animateRemove(row);
           })
           .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
       }
