@@ -27,6 +27,7 @@ Run in production (see deployment guide provided separately):
 import os
 import secrets
 import psycopg
+from psycopg import OperationalError
 from psycopg.rows import dict_row
 import time
 from datetime import datetime
@@ -163,9 +164,9 @@ def get_db():
         if not DATABASE_URL:
             raise RuntimeError(
                 "DATABASE_URL environment variable is not set. "
-                "Add your PostgreSQL connection string in Render."
+                "Add your PostgreSQL connection string in Vercel."
             )
-        g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        g.db = psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
     return g.db
 
 
@@ -174,6 +175,31 @@ def close_db(exception=None):
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+# --------------------------------------------------------------------------
+# Auto-retry once if the DB connection was killed mid-request.
+# On serverless hosting (Vercel), a Neon connection can occasionally be
+# closed by the provider ("AdminShutdown") between requests - e.g. when
+# its compute auto-suspends/resumes. This wraps a route so that if that
+# happens, we drop the stale connection and retry the whole view exactly
+# once with a fresh one, instead of showing the visitor a 500 error.
+# --------------------------------------------------------------------------
+
+def with_db_retry(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        try:
+            return view(*args, **kwargs)
+        except OperationalError:
+            stale = g.pop("db", None)
+            if stale is not None:
+                try:
+                    stale.close()
+                except Exception:
+                    pass
+            return view(*args, **kwargs)
+    return wrapped
 
 
 def init_db():
@@ -236,12 +262,7 @@ def init_db():
 
 
 with app.app_context():
-    try:
-        init_db()
-    except Exception as e:
-        # Ignore race conditions on sequence/table creation when multiple workers start simultaneously
-        import sys
-        print(f"[WARNING] init_db() encountered an error (may be harmless race on first start): {e}", file=sys.stderr)
+    init_db()
 
 
 # --------------------------------------------------------------------------
@@ -291,6 +312,7 @@ app.jinja_env.globals["csrf_token"] = get_csrf_token
 # --------------------------------------------------------------------------
 
 @app.route("/api/apply", methods=["POST", "OPTIONS"])
+@with_db_retry
 def api_apply():
     if request.method == "OPTIONS":
         return ("", 204)
@@ -325,6 +347,7 @@ def api_apply():
 # --------------------------------------------------------------------------
 
 @app.route("/api/partner-referral", methods=["POST", "OPTIONS"])
+@with_db_retry
 def api_partner_referral():
     if request.method == "OPTIONS":
         return ("", 204)
@@ -388,6 +411,7 @@ def api_slides():
 # --------------------------------------------------------------------------
 
 @app.route("/api/reviews", methods=["POST", "OPTIONS"])
+@with_db_retry
 def api_submit_review():
     if request.method == "OPTIONS":
         return ("", 204)
@@ -427,6 +451,7 @@ def api_submit_review():
 
 
 @app.route("/api/reviews", methods=["GET"])
+@with_db_retry
 def api_get_reviews():
     db = get_db()
     reviews = db.execute(
@@ -494,6 +519,7 @@ def admin_logout():
 
 @app.route("/admin/dashboard")
 @login_required
+@with_db_retry
 def admin_dashboard():
     db = get_db()
 
@@ -535,6 +561,7 @@ def admin_dashboard():
 
 @app.route("/admin/view/<int:app_id>")
 @login_required
+@with_db_retry
 def admin_view(app_id):
     db = get_db()
     application = db.execute(
@@ -547,6 +574,7 @@ def admin_view(app_id):
 
 @app.route("/admin/delete/<int:app_id>", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_delete(app_id):
     db = get_db()
     db.execute("DELETE FROM applications WHERE id = %s", (app_id,))
@@ -558,6 +586,7 @@ def admin_delete(app_id):
 
 @app.route("/admin/applications/<int:app_id>/toggle-contacted", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_toggle_contacted(app_id):
     db = get_db()
     db.execute(
@@ -572,6 +601,7 @@ def admin_toggle_contacted(app_id):
 
 @app.route("/admin/applications/<int:app_id>/toggle-disbursed", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_toggle_disbursed(app_id):
     db = get_db()
     db.execute(
@@ -592,6 +622,7 @@ def admin_toggle_disbursed(app_id):
 
 @app.route("/admin/reviews/<int:review_id>/approve", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_approve_review(review_id):
     db = get_db()
     db.execute("UPDATE reviews SET status = 'approved' WHERE id = %s", (review_id,))
@@ -603,6 +634,7 @@ def admin_approve_review(review_id):
 
 @app.route("/admin/reviews/<int:review_id>/reject", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_reject_review(review_id):
     db = get_db()
     db.execute("UPDATE reviews SET status = 'rejected' WHERE id = %s", (review_id,))
@@ -614,6 +646,7 @@ def admin_reject_review(review_id):
 
 @app.route("/admin/reviews/<int:review_id>/delete", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_delete_review(review_id):
     db = get_db()
     db.execute("DELETE FROM reviews WHERE id = %s", (review_id,))
@@ -629,6 +662,7 @@ def admin_delete_review(review_id):
 
 @app.route("/admin/referrals/<int:referral_id>/toggle-contacted", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_toggle_referral_contacted(referral_id):
     db = get_db()
     db.execute(
@@ -643,6 +677,7 @@ def admin_toggle_referral_contacted(referral_id):
 
 @app.route("/admin/referrals/<int:referral_id>/delete", methods=["POST"])
 @login_required
+@with_db_retry
 def admin_delete_referral(referral_id):
     db = get_db()
     db.execute("DELETE FROM partner_referrals WHERE id = %s", (referral_id,))
