@@ -40,7 +40,7 @@
 */
 
 (function () {
-  var API_BASE = "https://trust-credit.onrender.com"; // change if backend runs elsewhere
+  var API_BASE = "https://trust-credit.vercel.app"; // change if backend runs elsewhere
   var AUTOPLAY_MS = 3200;
   var CACHE_KEY = "tc3d_slides_cache_v1";
   var FETCH_TIMEOUT_MS = 12000; // Render free-tier cold start can take 30-60s to
