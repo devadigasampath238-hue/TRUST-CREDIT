@@ -236,7 +236,12 @@ def init_db():
 
 
 with app.app_context():
-    init_db()
+    try:
+        init_db()
+    except Exception as e:
+        # Ignore race conditions on sequence/table creation when multiple workers start simultaneously
+        import sys
+        print(f"[WARNING] init_db() encountered an error (may be harmless race on first start): {e}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------
