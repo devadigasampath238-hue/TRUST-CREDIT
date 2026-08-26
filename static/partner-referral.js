@@ -113,11 +113,11 @@
       });
 
       // POST to the partner referral endpoint. The site (trustcreditsolutions.in)
-      // and the backend (trust-credit.onrender.com) are on different domains,
+      // and the backend (trust-credit.vercel.app) are on different domains,
       // so this must be an absolute URL — a relative "/api/..." path would
       // resolve against trustcreditsolutions.in and 404. CORS is already
       // configured on the backend (see app.py) to allow this cross-origin call.
-      fetch("https://trust-credit.onrender.com/api/partner-referral", {
+      fetch("https://trust-credit.vercel.app/api/partner-referral", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
