@@ -1,5 +1,5 @@
 (function () {
-  var API_BASE = "https://trust-credit.onrender.com"; // same backend as slideshow
+  var API_BASE = "https://trust-credit.vercel.app"; // same backend as slideshow
   var CACHE_KEY = "tc3d_reviews_cache_v1";
   var FETCH_TIMEOUT_MS = 12000; // Render free tier can be slow to wake up
   var RETRY_ATTEMPTS = 2;
