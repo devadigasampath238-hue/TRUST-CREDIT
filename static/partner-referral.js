@@ -117,7 +117,7 @@
       // so this must be an absolute URL — a relative "/api/..." path would
       // resolve against trustcreditsolutions.in and 404. CORS is already
       // configured on the backend (see app.py) to allow this cross-origin call.
-      fetch("https://trust-credit.vercel.app/api/partner-referral", {
+      fetch("https://trust-credit-livid.vercel.app/static/partner-referral.js", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
