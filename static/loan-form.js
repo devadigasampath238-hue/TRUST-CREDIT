@@ -17,7 +17,7 @@
 */
 
 (function () {
-  var API_BASE = "https://trust-credit.vercel.app"; // change if backend runs elsewhere
+  var API_BASE = "https://trust-credit-livid.vercel.app"; // change if backend runs elsewhere
 
   function init() {
     var form = document.getElementById("leadForm");
