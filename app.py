@@ -32,6 +32,7 @@ from psycopg.rows import dict_row
 import time
 from datetime import datetime
 from functools import wraps
+import requests
 
 from flask import (
     Flask, request, jsonify, render_template,
@@ -130,6 +131,76 @@ def add_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
+
+
+# --------------------------------------------------------------------------
+# OneSignal - Web Push notifications (server-side sending)
+#
+# The REST API key is NEVER hard-coded and NEVER sent to the frontend -
+# it is only read from the ONESIGNAL_REST_API_KEY environment variable
+# (set in Vercel) and used here, server-side, to call OneSignal's API.
+# --------------------------------------------------------------------------
+
+ONESIGNAL_APP_ID = "37d8f8ab-1ec5-4eb4-aacb-81de340292dd"
+ONESIGNAL_REST_API_KEY = os.environ.get("ONESIGNAL_REST_API_KEY")
+ONESIGNAL_API_URL = "https://api.onesignal.com/notifications"
+ONESIGNAL_ADMIN_SITE_URL = "https://trust-credit-livid.vercel.app"
+
+if IS_PRODUCTION and not ONESIGNAL_REST_API_KEY:
+    print("WARNING: ONESIGNAL_REST_API_KEY is not set. New-application push "
+          "notifications will be skipped until it is configured in Vercel.")
+
+# Best-effort in-memory guard against sending the same notification twice
+# (e.g. if a request handler were ever invoked again for the same row).
+# This is not persisted across restarts/workers - it's a light safety net,
+# not a source of truth.
+_notified_application_ids = set()
+
+
+def send_new_application_notification(application_id):
+    """
+    Sends a OneSignal Web Push notification to all subscribed users
+    (currently just the admin dashboard) announcing a new loan application.
+
+    This function must never raise - any failure here must not affect
+    the /api/apply response, since the application has already been
+    committed to the database by the time this runs.
+    """
+    if not ONESIGNAL_REST_API_KEY:
+        print("[OneSignal] Notification skipped: ONESIGNAL_REST_API_KEY is not configured.")
+        return
+
+    if application_id in _notified_application_ids:
+        return
+
+    payload = {
+        "app_id": ONESIGNAL_APP_ID,
+        "included_segments": ["Subscribed Users"],
+        "headings": {"en": "New Loan Application"},
+        "contents": {"en": f"A new loan application has been submitted. Reference #{application_id}"},
+        "url": f"{ONESIGNAL_ADMIN_SITE_URL}/admin/view/{application_id}",
+    }
+
+    try:
+        response = requests.post(
+            ONESIGNAL_API_URL,
+            json=payload,
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Key {ONESIGNAL_REST_API_KEY}",
+            },
+            timeout=10,
+        )
+        if response.status_code >= 400:
+            # Log only the status code - never the key, and never the full
+            # response body (which could echo back request details).
+            print(f"[OneSignal] Failed to send notification for application "
+                  f"#{application_id}: HTTP {response.status_code}")
+        else:
+            _notified_application_ids.add(application_id)
+    except requests.RequestException as exc:
+        print(f"[OneSignal] Error sending notification for application "
+              f"#{application_id}: {type(exc).__name__}")
 
 
 # --------------------------------------------------------------------------
@@ -303,14 +374,26 @@ def api_apply():
         return jsonify({"success": False, "error": "Full name and mobile number are required."}), 400
 
     db = get_db()
-    db.execute(
+    inserted = db.execute(
         """
         INSERT INTO applications (full_name, mobile, email, city, loan_type, message, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
         (full_name, mobile, email, city, loan_type, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    )
+    ).fetchone()
     db.commit()
+
+    # The application is now safely saved. Only AFTER the commit above do
+    # we attempt to notify admins - and a notification failure here must
+    # never undo the save or change the success response below.
+    application_id = inserted["id"] if inserted else None
+    if application_id is not None:
+        try:
+            send_new_application_notification(application_id)
+        except Exception as exc:
+            print(f"[OneSignal] Unexpected error while notifying admins "
+                  f"for application #{application_id}: {type(exc).__name__}")
 
     return jsonify({"success": True, "message": "Application submitted successfully."})
 
