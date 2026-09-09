@@ -35,7 +35,7 @@ from functools import wraps
 
 from flask import (
     Flask, request, jsonify, render_template,
-    redirect, url_for, session, g
+    redirect, url_for, session, g, send_from_directory
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -55,16 +55,8 @@ app = Flask(__name__)
 
 IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production"
 
-# Secret key: MUST be set via environment variable in production.
-# For local testing only, we fall back to a random key generated at startup
-# (this means sessions won't survive a server restart locally - that's fine
-# for testing, but in production always set SECRET_KEY explicitly).
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32).hex()
 
-# Admin credentials.
-# Username can just be an env var. Password is stored as a HASH, never
-# as plain text, so even if someone reads your server files they can't
-# see the real password.
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH")
 
@@ -74,32 +66,25 @@ if IS_PRODUCTION and ADMIN_USERNAME == "admin":
           "is the first username every attacker tries.")
 
 if not ADMIN_PASSWORD_HASH:
-    # Local-testing fallback ONLY: default password is "admin123".
-    # In production you should always set ADMIN_PASSWORD_HASH yourself
-    # (see hash_password.py in this folder).
     ADMIN_PASSWORD_HASH = generate_password_hash("admin123")
     if IS_PRODUCTION:
         print("WARNING: ADMIN_PASSWORD_HASH is not set! Using an insecure "
               "default. Set it via an environment variable before going live.")
 
-# Secure session cookies (cookie can't be read by JS, only sent over HTTPS
-# in production, and not sent along with cross-site requests).
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=IS_PRODUCTION,   # requires HTTPS in production
-    PERMANENT_SESSION_LIFETIME=1800,        # auto-logout after 30 min idle
+    SESSION_COOKIE_SECURE=IS_PRODUCTION,
+    PERMANENT_SESSION_LIFETIME=1800,
 )
 
 # --------------------------------------------------------------------------
-# Very simple login rate-limiter (blocks brute-force password guessing)
-# In-memory only - resets if the server restarts. Good enough for a small
-# single-admin site; for a bigger deployment use Flask-Limiter + Redis.
+# Very simple login rate-limiter
 # --------------------------------------------------------------------------
 
 MAX_LOGIN_ATTEMPTS = 5
-LOCKOUT_SECONDS = 300  # 5 minutes
-_login_attempts = {}  # ip -> {"count": int, "locked_until": timestamp}
+LOCKOUT_SECONDS = 300
+_login_attempts = {}
 
 
 def is_locked_out(ip):
@@ -109,7 +94,6 @@ def is_locked_out(ip):
     if entry["count"] >= MAX_LOGIN_ATTEMPTS:
         if time.time() < entry["locked_until"]:
             return True
-        # Lockout period has expired - reset this IP's attempt counter.
         _login_attempts.pop(ip, None)
     return False
 
@@ -126,8 +110,7 @@ def clear_attempts(ip):
 
 
 # --------------------------------------------------------------------------
-# CORS - restrict this to your real website domain in production instead
-# of "*". Example: ALLOWED_ORIGIN = "https://www.trustcredit.com"
+# CORS
 # --------------------------------------------------------------------------
 
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
@@ -143,14 +126,8 @@ def add_cors_headers(response):
 
 @app.after_request
 def add_security_headers(response):
-    # Stops the admin pages from being loaded inside an <iframe> on
-    # another site (clickjacking protection).
     response.headers["X-Frame-Options"] = "DENY"
-    # Stops the browser from guessing/re-interpreting file types, which
-    # can be abused to run disguised scripts.
     response.headers["X-Content-Type-Options"] = "nosniff"
-    # Don't leak the full referring URL (which may contain admin paths
-    # or session-ish info) to third-party sites linked from your pages.
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
@@ -176,15 +153,6 @@ def close_db(exception=None):
     if db is not None:
         db.close()
 
-
-# --------------------------------------------------------------------------
-# Auto-retry once if the DB connection was killed mid-request.
-# On serverless hosting (Vercel), a Neon connection can occasionally be
-# closed by the provider ("AdminShutdown") between requests - e.g. when
-# its compute auto-suspends/resumes. This wraps a route so that if that
-# happens, we drop the stale connection and retry the whole view exactly
-# once with a fresh one, instead of showing the visitor a 500 error.
-# --------------------------------------------------------------------------
 
 def with_db_retry(view):
     @wraps(view)
@@ -224,8 +192,6 @@ def init_db():
             )
             """
         )
-        # Safe to re-run: only adds these columns if they don't already exist,
-        # so this won't touch your existing application rows.
         conn.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS contacted BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute("ALTER TABLE applications ADD COLUMN IF NOT EXISTS disbursed BOOLEAN NOT NULL DEFAULT FALSE")
         conn.execute(
@@ -279,18 +245,11 @@ def login_required(view):
 
 
 def wants_json():
-    # Our own JS sends this header on every fetch() call below. Regular
-    # <form> submits (no-JS fallback) won't send it, so those still get
-    # the normal redirect behavior.
     return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
 # --------------------------------------------------------------------------
 # CSRF protection for the admin login form.
-# A malicious website could otherwise auto-submit a hidden form to your
-# /admin/login endpoint from a visitor's browser. This one-time token
-# (tied to their session) makes sure a submission only counts if it
-# actually came from your own login page.
 # --------------------------------------------------------------------------
 
 def get_csrf_token():
@@ -305,6 +264,20 @@ def csrf_token_valid(submitted_token):
 
 
 app.jinja_env.globals["csrf_token"] = get_csrf_token
+
+
+# --------------------------------------------------------------------------
+# OneSignal - Web Push service worker
+# OneSignal requires its service worker script to be served from the root
+# of the domain (not from /static/...), so that it can control the whole
+# site's scope. This route just hands back the existing
+# OneSignalSDKWorker.js file (kept alongside app.py) with the right
+# JavaScript mimetype.
+# --------------------------------------------------------------------------
+
+@app.route("/OneSignalSDKWorker.js")
+def onesignal_service_worker():
+    return send_from_directory(BASE_DIR, "OneSignalSDKWorker.js", mimetype="application/javascript")
 
 
 # --------------------------------------------------------------------------
@@ -616,8 +589,6 @@ def admin_toggle_disbursed(app_id):
 
 # --------------------------------------------------------------------------
 # Admin - Reviews (approve / reject customer-submitted reviews)
-# Merged into the single admin_dashboard.html page - these routes just
-# perform the action and report back, they no longer render their own page.
 # --------------------------------------------------------------------------
 
 @app.route("/admin/reviews/<int:review_id>/approve", methods=["POST"])
@@ -697,8 +668,7 @@ def index():
 
 
 # --------------------------------------------------------------------------
-# Entry point (used for local testing only - see deployment guide for
-# how to run this with gunicorn in production)
+# Entry point
 # --------------------------------------------------------------------------
 
 if __name__ == "__main__":
