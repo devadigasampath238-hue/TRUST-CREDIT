@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Admin Dashboard - Trust Credit</title>
-<style>
+<>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f4f6fa; color: #0B1E3F; }
   header {
@@ -100,6 +100,21 @@
     td.actions-cell::before { display: none; }
   }
 </style>
+
+
+<!-- OneSignal Push Notifications -->
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script>
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+
+  OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+      appId: "37d8f8ab-1ec5-4eb4-aacb-81de340292dd"
+    });
+  });
+</script>
+
+
 </head>
 <body>
   <header>
