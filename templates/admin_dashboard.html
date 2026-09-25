@@ -36,12 +36,33 @@
     scroll-margin-top: 90px;
   }
 
+  /* -------- Bulk-action toolbar -------- */
+  .bulk-toolbar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: #fff; border-radius: 10px 10px 0 0; padding: 10px 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-bottom: 1px solid #eee;
+    font-size: 13px;
+  }
+  .bulk-toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #445; }
+  .bulk-toolbar input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  .btn-bulk-delete {
+    margin-left: auto; background: #ffe6e6; color: #c0392b; border: none;
+    padding: 7px 14px; border-radius: 6px; font-size: 12.5px; font-weight: bold;
+    cursor: pointer; transition: opacity .12s ease, transform .12s ease;
+  }
+  .btn-bulk-delete:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-bulk-delete:not(:disabled):active { transform: scale(0.96); }
+  .bulk-toolbar + table { border-radius: 0 0 10px 10px; }
+  .bulk-toolbar + table thead tr:first-child th:first-child { border-top-left-radius: 0; }
+
   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
   th, td { padding: 12px 14px; text-align: left; font-size: 13.5px; border-bottom: 1px solid #eee; }
   th { background: #0B1E3F; color: #fff; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+  th.checkbox-col, td.checkbox-col { width: 34px; padding-left: 14px; padding-right: 0; }
   tr { transition: opacity .35s ease, background-color .2s ease; }
   tr:hover { background: #f9fbff; }
   tr.row-exit { opacity: 0; }
+  tr.row-selected { background: #fff7e0; }
 
   .tag { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; margin-right: 4px; white-space: nowrap; }
   .tag-new { background: #eef1f6; color: #667; }
@@ -66,13 +87,18 @@
   .empty { padding: 30px; text-align: center; color: #889; background: #fff; border-radius: 10px; }
 
   /* -------- Review cards -------- */
+  .review-section-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
   .review-card {
     background: #fff; border-radius: 10px; padding: 18px 22px; margin-bottom: 12px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     transition: opacity .35s ease, max-height .35s ease, padding .35s ease, margin .35s ease;
     overflow: hidden; max-height: 400px;
+    display: flex; gap: 14px; align-items: flex-start;
   }
+  .review-card.row-selected { background: #fff7e0; }
   .review-card.row-exit { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-bottom: 0; border: none; }
+  .review-card input[type="checkbox"] { width: 16px; height: 16px; margin-top: 4px; cursor: pointer; flex-shrink: 0; }
+  .review-body { flex: 1; min-width: 0; }
   .review-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   .review-name { font-weight: bold; font-size: 14.5px; }
   .review-stars { color: #2E9E3E; font-size: 13px; margin-left: 6px; }
@@ -98,6 +124,8 @@
     td::before { content: attr(data-label); font-weight: bold; color: #667; font-size: 11px; text-transform: uppercase; }
     td.actions-cell { display: block; }
     td.actions-cell::before { display: none; }
+    td.checkbox-col { justify-content: flex-start; }
+    td.checkbox-col::before { content: "Select"; }
   }
 </style>
 
@@ -158,15 +186,21 @@
     {% if active_applications|length == 0 %}
       <div class="empty">No active applications.</div>
     {% else %}
+      <div class="bulk-toolbar">
+        <label><input type="checkbox" data-select-all="active"> Select all</label>
+        <button class="btn-bulk-delete" data-bulk-delete="active" disabled>Delete Selected (<span>0</span>)</button>
+      </div>
       <table id="activeTable">
         <thead>
           <tr>
+            <th class="checkbox-col"></th>
             <th>#</th><th>Name</th><th>Mobile</th><th>City</th><th>Loan Type</th><th>Status</th><th>Submitted</th><th>Actions</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-group="active">
           {% for a in active_applications %}
           <tr data-id="{{ a.id }}">
+            <td class="checkbox-col" data-label="Select"><input type="checkbox" class="row-check" data-group="active" value="{{ a.id }}"></td>
             <td data-label="#">{{ a.id }}</td>
             <td data-label="Name">{{ a.full_name }}</td>
             <td data-label="Mobile">{{ a.mobile }}</td>
@@ -195,15 +229,21 @@
     {% if disbursed_applications|length == 0 %}
       <div class="empty">No disbursed loans yet.</div>
     {% else %}
+      <div class="bulk-toolbar">
+        <label><input type="checkbox" data-select-all="disbursed"> Select all</label>
+        <button class="btn-bulk-delete" data-bulk-delete="disbursed" disabled>Delete Selected (<span>0</span>)</button>
+      </div>
       <table id="disbursedTable">
         <thead>
           <tr>
+            <th class="checkbox-col"></th>
             <th>#</th><th>Name</th><th>Mobile</th><th>City</th><th>Loan Type</th><th>Status</th><th>Submitted</th><th>Actions</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-group="disbursed">
           {% for a in disbursed_applications %}
           <tr data-id="{{ a.id }}">
+            <td class="checkbox-col" data-label="Select"><input type="checkbox" class="row-check" data-group="disbursed" value="{{ a.id }}"></td>
             <td data-label="#">{{ a.id }}</td>
             <td data-label="Name">{{ a.full_name }}</td>
             <td data-label="Mobile">{{ a.mobile }}</td>
@@ -227,17 +267,23 @@
     {% if partner_referrals|length == 0 %}
       <div class="empty">No partner referrals yet.</div>
     {% else %}
+      <div class="bulk-toolbar">
+        <label><input type="checkbox" data-select-all="referrals"> Select all</label>
+        <button class="btn-bulk-delete" data-bulk-delete="referrals" disabled>Delete Selected (<span>0</span>)</button>
+      </div>
       <table id="referralsTable">
         <thead>
           <tr>
+            <th class="checkbox-col"></th>
             <th>#</th><th>Referrer</th><th>Referrer Mobile</th><th>Payout (UPI/Bank)</th>
             <th>Borrower</th><th>Borrower Mobile</th><th>City</th><th>Occupation</th>
             <th>Loan Amount</th><th>Loan Type</th><th>Status</th><th>Submitted</th><th>Actions</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody data-group="referrals">
           {% for r in partner_referrals %}
           <tr data-id="{{ r.id }}">
+            <td class="checkbox-col" data-label="Select"><input type="checkbox" class="row-check" data-group="referrals" value="{{ r.id }}"></td>
             <td data-label="#">{{ r.id }}</td>
             <td data-label="Referrer">{{ r.referrer_name }}</td>
             <td data-label="Referrer Mobile">{{ r.referrer_mobile }}</td>
@@ -268,20 +314,28 @@
     <h2 class="section-title" id="reviews">Pending Reviews ({{ pending_reviews|length }})</h2>
     {% if pending_reviews|length == 0 %}
       <div class="empty">No pending reviews.</div>
+    {% else %}
+      <div class="review-section-head bulk-toolbar" style="border-radius:10px; margin-bottom:12px;">
+        <label><input type="checkbox" data-select-all="reviews-pending"> Select all</label>
+        <button class="btn-bulk-delete" data-bulk-delete="reviews-pending" disabled>Delete Selected (<span>0</span>)</button>
+      </div>
     {% endif %}
     {% for r in pending_reviews %}
       <div class="review-card" data-review-id="{{ r.id }}">
-        <div class="review-top">
-          <div>
-            <span class="review-name">{{ r.customer_name }}</span>
-            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+        <input type="checkbox" class="row-check" data-group="reviews-pending" value="{{ r.id }}">
+        <div class="review-body">
+          <div class="review-top">
+            <div>
+              <span class="review-name">{{ r.customer_name }}</span>
+              {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+            </div>
+            <span class="review-date">{{ r.created_at }}</span>
           </div>
-          <span class="review-date">{{ r.created_at }}</span>
-        </div>
-        <div class="review-text">{{ r.review_text }}</div>
-        <div class="actions">
-          <button class="btn-approve" data-action="approve-review" data-id="{{ r.id }}">Approve</button>
-          <button class="btn-reject" data-action="reject-review" data-id="{{ r.id }}">Reject</button>
+          <div class="review-text">{{ r.review_text }}</div>
+          <div class="actions">
+            <button class="btn-approve" data-action="approve-review" data-id="{{ r.id }}">Approve</button>
+            <button class="btn-reject" data-action="reject-review" data-id="{{ r.id }}">Reject</button>
+          </div>
         </div>
       </div>
     {% endfor %}
@@ -289,20 +343,28 @@
     <h2 class="section-title">Live on Site ({{ approved_reviews|length }})</h2>
     {% if approved_reviews|length == 0 %}
       <div class="empty">No approved reviews yet.</div>
+    {% else %}
+      <div class="review-section-head bulk-toolbar" style="border-radius:10px; margin-bottom:12px;">
+        <label><input type="checkbox" data-select-all="reviews-approved"> Select all</label>
+        <button class="btn-bulk-delete" data-bulk-delete="reviews-approved" disabled>Delete Selected (<span>0</span>)</button>
+      </div>
     {% endif %}
     {% for r in approved_reviews %}
       <div class="review-card" data-review-id="{{ r.id }}">
-        <div class="review-top">
-          <div>
-            <span class="review-name">{{ r.customer_name }}</span>
-            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
-            <span class="tag tag-disbursed" style="margin-left:8px;">LIVE</span>
+        <input type="checkbox" class="row-check" data-group="reviews-approved" value="{{ r.id }}">
+        <div class="review-body">
+          <div class="review-top">
+            <div>
+              <span class="review-name">{{ r.customer_name }}</span>
+              {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+              <span class="tag tag-disbursed" style="margin-left:8px;">LIVE</span>
+            </div>
+            <span class="review-date">{{ r.created_at }}</span>
           </div>
-          <span class="review-date">{{ r.created_at }}</span>
-        </div>
-        <div class="review-text">{{ r.review_text }}</div>
-        <div class="actions">
-          <button class="btn-delete" data-action="delete-review" data-id="{{ r.id }}">Remove from site</button>
+          <div class="review-text">{{ r.review_text }}</div>
+          <div class="actions">
+            <button class="btn-delete" data-action="delete-review" data-id="{{ r.id }}">Remove from site</button>
+          </div>
         </div>
       </div>
     {% endfor %}
@@ -310,19 +372,27 @@
     <h2 class="section-title">Rejected ({{ rejected_reviews|length }})</h2>
     {% if rejected_reviews|length == 0 %}
       <div class="empty">No rejected reviews.</div>
+    {% else %}
+      <div class="review-section-head bulk-toolbar" style="border-radius:10px; margin-bottom:12px;">
+        <label><input type="checkbox" data-select-all="reviews-rejected"> Select all</label>
+        <button class="btn-bulk-delete" data-bulk-delete="reviews-rejected" disabled>Delete Selected (<span>0</span>)</button>
+      </div>
     {% endif %}
     {% for r in rejected_reviews %}
       <div class="review-card" data-review-id="{{ r.id }}">
-        <div class="review-top">
-          <div>
-            <span class="review-name">{{ r.customer_name }}</span>
-            {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+        <input type="checkbox" class="row-check" data-group="reviews-rejected" value="{{ r.id }}">
+        <div class="review-body">
+          <div class="review-top">
+            <div>
+              <span class="review-name">{{ r.customer_name }}</span>
+              {% if r.rating %}<span class="review-stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>{% endif %}
+            </div>
+            <span class="review-date">{{ r.created_at }}</span>
           </div>
-          <span class="review-date">{{ r.created_at }}</span>
-        </div>
-        <div class="review-text">{{ r.review_text }}</div>
-        <div class="actions">
-          <button class="btn-delete" data-action="delete-review" data-id="{{ r.id }}">Delete permanently</button>
+          <div class="review-text">{{ r.review_text }}</div>
+          <div class="actions">
+            <button class="btn-delete" data-action="delete-review" data-id="{{ r.id }}">Delete permanently</button>
+          </div>
         </div>
       </div>
     {% endfor %}
@@ -340,11 +410,16 @@
       t._timer = setTimeout(function () { t.classList.remove('show'); }, 2200);
     }
 
-    function postAction(url) {
-      return fetch(url, {
+    function postAction(url, body) {
+      var opts = {
         method: 'POST',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
-      }).then(function (res) {
+      };
+      if (body !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      return fetch(url, opts).then(function (res) {
         if (!res.ok) throw new Error('Request failed');
         return res.json();
       });
@@ -463,6 +538,88 @@
           })
           .catch(function () { showToast('Something went wrong, please try again'); btn.disabled = false; });
       }
+    });
+
+    // ------------------------------------------------------------------
+    // Bulk selection + bulk delete
+    // ------------------------------------------------------------------
+
+    var BULK_ENDPOINTS = {
+      'active': '/admin/applications/bulk-delete',
+      'disbursed': '/admin/applications/bulk-delete',
+      'referrals': '/admin/referrals/bulk-delete',
+      'reviews-pending': '/admin/reviews/bulk-delete',
+      'reviews-approved': '/admin/reviews/bulk-delete',
+      'reviews-rejected': '/admin/reviews/bulk-delete'
+    };
+
+    function rowEl(checkbox) {
+      return checkbox.closest('tr') || checkbox.closest('.review-card');
+    }
+
+    function updateToolbar(group) {
+      var checks = document.querySelectorAll('.row-check[data-group="' + group + '"]');
+      var checked = document.querySelectorAll('.row-check[data-group="' + group + '"]:checked');
+      var toolbarBtn = document.querySelector('[data-bulk-delete="' + group + '"]');
+      var selectAll = document.querySelector('[data-select-all="' + group + '"]');
+
+      if (toolbarBtn) {
+        toolbarBtn.disabled = checked.length === 0;
+        toolbarBtn.querySelector('span').textContent = checked.length;
+      }
+      if (selectAll) {
+        selectAll.checked = checks.length > 0 && checked.length === checks.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < checks.length;
+      }
+      checks.forEach(function (cb) {
+        var el = rowEl(cb);
+        if (el) el.classList.toggle('row-selected', cb.checked);
+      });
+    }
+
+    document.addEventListener('change', function (e) {
+      if (e.target.matches('.row-check')) {
+        updateToolbar(e.target.getAttribute('data-group'));
+      } else if (e.target.matches('[data-select-all]')) {
+        var group = e.target.getAttribute('data-select-all');
+        var checked = e.target.checked;
+        document.querySelectorAll('.row-check[data-group="' + group + '"]').forEach(function (cb) {
+          cb.checked = checked;
+        });
+        updateToolbar(group);
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-bulk-delete]');
+      if (!btn || btn.disabled) return;
+
+      var group = btn.getAttribute('data-bulk-delete');
+      var endpoint = BULK_ENDPOINTS[group];
+      if (!endpoint) return;
+
+      var checked = document.querySelectorAll('.row-check[data-group="' + group + '"]:checked');
+      var ids = Array.prototype.map.call(checked, function (cb) { return parseInt(cb.value, 10); });
+      if (ids.length === 0) return;
+
+      if (!confirm('Delete ' + ids.length + ' item' + (ids.length === 1 ? '' : 's') + ' permanently? This cannot be undone.')) {
+        return;
+      }
+
+      btn.disabled = true;
+      postAction(endpoint, { ids: ids })
+        .then(function (data) {
+          showToast('Deleted ' + (data.deleted || ids.length) + ' item(s)');
+          checked.forEach(function (cb) {
+            var el = rowEl(cb);
+            if (el) animateRemove(el);
+          });
+          updateToolbar(group);
+        })
+        .catch(function () {
+          showToast('Something went wrong, please try again');
+          btn.disabled = false;
+        });
     });
   </script>
 </body>
