@@ -6,6 +6,10 @@ Trust Credit - Flask Backend (hardened for production)
   a login-attempt limiter, and secure session cookie settings
 - Serves the banner images from static/slides as a JSON API for the
   frontend slideshow
+- Rate-limits the public submission forms (apply / review / referral)
+  so a single visitor can't flood the database with spam
+- Admin dashboard supports bulk-delete for applications, reviews and
+  referrals, so you can clean up spam in one click
 
 CONFIGURATION (set these as environment variables before running -
 see the "How to run" section at the bottom of this file):
@@ -32,7 +36,6 @@ from psycopg.rows import dict_row
 import time
 from datetime import datetime
 from functools import wraps
-import requests
 
 from flask import (
     Flask, request, jsonify, render_template,
@@ -111,6 +114,76 @@ def clear_attempts(ip):
 
 
 # --------------------------------------------------------------------------
+# Public-form rate-limiter (applications / referrals / reviews)
+# --------------------------------------------------------------------------
+# In-memory sliding-window limiter, keyed by (ip, form). Good enough for a
+# single-process deployment. If you ever run more than one worker process
+# behind a load balancer, move this to Redis/DB so counters are shared -
+# otherwise each process has its own counter and the limit is effectively
+# multiplied by the number of processes.
+
+SUBMISSION_WINDOW_SECONDS = 3600      # rolling window size
+SUBMISSION_MAX_PER_WINDOW = 5         # max submissions per IP per form per window
+SUBMISSION_MIN_INTERVAL_SECONDS = 20  # minimum gap between two submissions from the same IP+form
+
+_submission_log = {}  # (ip, form_name) -> [timestamp, timestamp, ...]
+
+
+def check_submission_allowed(ip, form_name):
+    """Returns (allowed: bool, reason: str|None, retry_after_seconds: int|None)."""
+    now = time.time()
+    key = (ip, form_name)
+    timestamps = _submission_log.setdefault(key, [])
+
+    # drop anything outside the rolling window
+    timestamps[:] = [t for t in timestamps if now - t < SUBMISSION_WINDOW_SECONDS]
+
+    if timestamps and (now - timestamps[-1]) < SUBMISSION_MIN_INTERVAL_SECONDS:
+        retry_after = int(SUBMISSION_MIN_INTERVAL_SECONDS - (now - timestamps[-1]))
+        return False, "too_fast", max(retry_after, 1)
+
+    if len(timestamps) >= SUBMISSION_MAX_PER_WINDOW:
+        oldest = timestamps[0]
+        retry_after = int(SUBMISSION_WINDOW_SECONDS - (now - oldest))
+        return False, "rate_limited", max(retry_after, 1)
+
+    timestamps.append(now)
+    return True, None, None
+
+
+def rate_limited_response(reason, retry_after):
+    if reason == "too_fast":
+        message = "You're submitting too quickly. Please wait a few seconds and try again."
+    else:
+        message = "Too many submissions from this connection. Please try again later."
+    resp = jsonify({"success": False, "error": message})
+    resp.status_code = 429
+    if retry_after:
+        resp.headers["Retry-After"] = str(retry_after)
+    return resp
+
+
+# Periodically forget IPs that have had no activity for a while, so this
+# dict doesn't grow forever on a long-running server.
+_last_submission_cleanup = time.time()
+
+
+def maybe_cleanup_submission_log():
+    global _last_submission_cleanup
+    now = time.time()
+    if now - _last_submission_cleanup < 600:  # run at most every 10 minutes
+        return
+    _last_submission_cleanup = now
+    stale_keys = []
+    for key, timestamps in _submission_log.items():
+        timestamps[:] = [t for t in timestamps if now - t < SUBMISSION_WINDOW_SECONDS]
+        if not timestamps:
+            stale_keys.append(key)
+    for key in stale_keys:
+        _submission_log.pop(key, None)
+
+
+# --------------------------------------------------------------------------
 # CORS
 # --------------------------------------------------------------------------
 
@@ -131,76 +204,6 @@ def add_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
-
-
-# --------------------------------------------------------------------------
-# OneSignal - Web Push notifications (server-side sending)
-#
-# The REST API key is NEVER hard-coded and NEVER sent to the frontend -
-# it is only read from the ONESIGNAL_REST_API_KEY environment variable
-# (set in Vercel) and used here, server-side, to call OneSignal's API.
-# --------------------------------------------------------------------------
-
-ONESIGNAL_APP_ID = "37d8f8ab-1ec5-4eb4-aacb-81de340292dd"
-ONESIGNAL_REST_API_KEY = os.environ.get("ONESIGNAL_REST_API_KEY")
-ONESIGNAL_API_URL = "https://api.onesignal.com/notifications"
-ONESIGNAL_ADMIN_SITE_URL = "https://trust-credit-livid.vercel.app"
-
-if IS_PRODUCTION and not ONESIGNAL_REST_API_KEY:
-    print("WARNING: ONESIGNAL_REST_API_KEY is not set. New-application push "
-          "notifications will be skipped until it is configured in Vercel.")
-
-# Best-effort in-memory guard against sending the same notification twice
-# (e.g. if a request handler were ever invoked again for the same row).
-# This is not persisted across restarts/workers - it's a light safety net,
-# not a source of truth.
-_notified_application_ids = set()
-
-
-def send_new_application_notification(application_id):
-    """
-    Sends a OneSignal Web Push notification to all subscribed users
-    (currently just the admin dashboard) announcing a new loan application.
-
-    This function must never raise - any failure here must not affect
-    the /api/apply response, since the application has already been
-    committed to the database by the time this runs.
-    """
-    if not ONESIGNAL_REST_API_KEY:
-        print("[OneSignal] Notification skipped: ONESIGNAL_REST_API_KEY is not configured.")
-        return
-
-    if application_id in _notified_application_ids:
-        return
-
-    payload = {
-        "app_id": ONESIGNAL_APP_ID,
-        "included_segments": ["Subscribed Users"],
-        "headings": {"en": "New Loan Application"},
-        "contents": {"en": f"A new loan application has been submitted. Reference #{application_id}"},
-        "url": f"{ONESIGNAL_ADMIN_SITE_URL}/admin/view/{application_id}",
-    }
-
-    try:
-        response = requests.post(
-            ONESIGNAL_API_URL,
-            json=payload,
-            headers={
-                "Content-Type": "application/json; charset=utf-8",
-                "Authorization": f"Key {ONESIGNAL_REST_API_KEY}",
-            },
-            timeout=10,
-        )
-        if response.status_code >= 400:
-            # Log only the status code - never the key, and never the full
-            # response body (which could echo back request details).
-            print(f"[OneSignal] Failed to send notification for application "
-                  f"#{application_id}: HTTP {response.status_code}")
-        else:
-            _notified_application_ids.add(application_id)
-    except requests.RequestException as exc:
-        print(f"[OneSignal] Error sending notification for application "
-              f"#{application_id}: {type(exc).__name__}")
 
 
 # --------------------------------------------------------------------------
@@ -319,6 +322,17 @@ def wants_json():
     return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
+def parse_id_list(raw_ids):
+    """Safely turn a list of arbitrary values into a list of positive ints."""
+    ids = []
+    for value in (raw_ids or []):
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
 # --------------------------------------------------------------------------
 # CSRF protection for the admin login form.
 # --------------------------------------------------------------------------
@@ -339,11 +353,6 @@ app.jinja_env.globals["csrf_token"] = get_csrf_token
 
 # --------------------------------------------------------------------------
 # OneSignal - Web Push service worker
-# OneSignal requires its service worker script to be served from the root
-# of the domain (not from /static/...), so that it can control the whole
-# site's scope. This route just hands back the existing
-# OneSignalSDKWorker.js file (kept alongside app.py) with the right
-# JavaScript mimetype.
 # --------------------------------------------------------------------------
 
 @app.route("/OneSignalSDKWorker.js")
@@ -361,6 +370,12 @@ def api_apply():
     if request.method == "OPTIONS":
         return ("", 204)
 
+    maybe_cleanup_submission_log()
+    ip = request.remote_addr or "unknown"
+    allowed, reason, retry_after = check_submission_allowed(ip, "apply")
+    if not allowed:
+        return rate_limited_response(reason, retry_after)
+
     data = request.get_json(silent=True) or request.form
 
     full_name = (data.get("fname") or data.get("full_name") or "").strip()
@@ -374,26 +389,14 @@ def api_apply():
         return jsonify({"success": False, "error": "Full name and mobile number are required."}), 400
 
     db = get_db()
-    inserted = db.execute(
+    db.execute(
         """
         INSERT INTO applications (full_name, mobile, email, city, loan_type, message, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
         """,
         (full_name, mobile, email, city, loan_type, message, datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    ).fetchone()
+    )
     db.commit()
-
-    # The application is now safely saved. Only AFTER the commit above do
-    # we attempt to notify admins - and a notification failure here must
-    # never undo the save or change the success response below.
-    application_id = inserted["id"] if inserted else None
-    if application_id is not None:
-        try:
-            send_new_application_notification(application_id)
-        except Exception as exc:
-            print(f"[OneSignal] Unexpected error while notifying admins "
-                  f"for application #{application_id}: {type(exc).__name__}")
 
     return jsonify({"success": True, "message": "Application submitted successfully."})
 
@@ -407,6 +410,12 @@ def api_apply():
 def api_partner_referral():
     if request.method == "OPTIONS":
         return ("", 204)
+
+    maybe_cleanup_submission_log()
+    ip = request.remote_addr or "unknown"
+    allowed, reason, retry_after = check_submission_allowed(ip, "referral")
+    if not allowed:
+        return rate_limited_response(reason, retry_after)
 
     data = request.get_json(silent=True) or request.form
 
@@ -471,6 +480,12 @@ def api_slides():
 def api_submit_review():
     if request.method == "OPTIONS":
         return ("", 204)
+
+    maybe_cleanup_submission_log()
+    ip = request.remote_addr or "unknown"
+    allowed, reason, retry_after = check_submission_allowed(ip, "review")
+    if not allowed:
+        return rate_limited_response(reason, retry_after)
 
     data = request.get_json(silent=True) or request.form
 
@@ -640,6 +655,20 @@ def admin_delete(app_id):
     return redirect(url_for("admin_dashboard"))
 
 
+@app.route("/admin/applications/bulk-delete", methods=["POST"])
+@login_required
+@with_db_retry
+def admin_bulk_delete_applications():
+    data = request.get_json(silent=True) or {}
+    ids = parse_id_list(data.get("ids"))
+    if not ids:
+        return jsonify({"success": False, "error": "No valid ids provided."}), 400
+    db = get_db()
+    db.execute("DELETE FROM applications WHERE id = ANY(%s)", (ids,))
+    db.commit()
+    return jsonify({"success": True, "deleted": len(ids)})
+
+
 @app.route("/admin/applications/<int:app_id>/toggle-contacted", methods=["POST"])
 @login_required
 @with_db_retry
@@ -710,6 +739,20 @@ def admin_delete_review(review_id):
     return redirect(url_for("admin_dashboard"))
 
 
+@app.route("/admin/reviews/bulk-delete", methods=["POST"])
+@login_required
+@with_db_retry
+def admin_bulk_delete_reviews():
+    data = request.get_json(silent=True) or {}
+    ids = parse_id_list(data.get("ids"))
+    if not ids:
+        return jsonify({"success": False, "error": "No valid ids provided."}), 400
+    db = get_db()
+    db.execute("DELETE FROM reviews WHERE id = ANY(%s)", (ids,))
+    db.commit()
+    return jsonify({"success": True, "deleted": len(ids)})
+
+
 # --------------------------------------------------------------------------
 # Admin - Partner referrals (Refer & Earn submissions)
 # --------------------------------------------------------------------------
@@ -739,6 +782,20 @@ def admin_delete_referral(referral_id):
     if wants_json():
         return jsonify({"success": True})
     return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/referrals/bulk-delete", methods=["POST"])
+@login_required
+@with_db_retry
+def admin_bulk_delete_referrals():
+    data = request.get_json(silent=True) or {}
+    ids = parse_id_list(data.get("ids"))
+    if not ids:
+        return jsonify({"success": False, "error": "No valid ids provided."}), 400
+    db = get_db()
+    db.execute("DELETE FROM partner_referrals WHERE id = ANY(%s)", (ids,))
+    db.commit()
+    return jsonify({"success": True, "deleted": len(ids)})
 
 
 # --------------------------------------------------------------------------
